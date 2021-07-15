@@ -1,0 +1,10 @@
+six>=1.10.0
+
+[gym]
+gym
+
+[keras]
+keras
+
+[tf]
+tensorflow>=1.7
