@@ -288,22 +288,7 @@ def main(arglist):
                         else:
                             agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i])
                 gt.stamp('train')
-    def traj_train_plots():
-    
-        plt.cla()
-        folder_path = r"log/diff-ma_softq/2/MASQL_MASQL/"
-        file_type = '/*csv'
-        files = glob.glob(folder_path + file_type)
-        file_name = max(files, key=os.path.getctime)
-        df = pd.read_csv (file_name)
-        data_0=np.array(df['mean-path-return_agent_0'])
-        data_1=np.array(df['mean-path-return_agent_1'])
-        episodes=np.array(df['episodes'])
-        plt.plot(episodes,data_0[::50])
-        plt.plot(episodes,data_1[::50])
-        plt.savefig("rewards.png")
-        plt.show()
-    traj_train_plots()
+
 
             # #self._evaluate(epoch)
 
