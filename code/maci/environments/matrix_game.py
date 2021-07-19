@@ -155,6 +155,24 @@ class MatrixGame():
             # \alpha, \beta = 0, 0.9, nash is 0.5 0.5
             # Q tables given, matian best response, learn a nash e.
 
+        elif game == 'climbing':
+            assert self.agent_num == 2
+            assert self.action_num == 3
+            self.payoff[0] = [[11, -30, 0],
+                              [-30, 7, 6],
+                              [0, 0, 5]]
+            self.payoff[1] = [[11, -30, 0],
+                              [-30, 7, 6],
+                              [0, 0, 5]]
+        elif game == 'penalty':
+            assert self.agent_num == 2
+            assert self.action_num == 3
+            self.payoff[0] = [[10, 0, 0],
+                              [0, 2, 0],
+                              [0, 0, 10]]
+            self.payoff[1] = [[10, 0, 0],
+                              [0, 2, 0],
+                              [0, 0, 10]]
         # elif game == 'rock_paper_scissors':
         #     assert self.agent_num == 2
         #     assert self.action_num == 3

@@ -25,11 +25,13 @@ class NNVFunction(MLPFunction):
 
 
 class NNQFunction(MLPFunction):
-    def __init__(self, env_spec, hidden_layer_sizes=(100, 100), name='qf', joint=False, agent_id=None):
+    def __init__(self, env_spec, hidden_layer_sizes=(100, 100), name='qf', joint=False, agent_id=None, maddpg=False):
         Serializable.quick_init(self, locals())
         if isinstance(env_spec, MAEnvSpec):
             assert agent_id is not None
             self._observation_dim = env_spec.observation_space[agent_id].flat_dim
+            if maddpg:
+                self._observation_dim = env_spec.observation_space.flat_dim
             if joint:
                 self._action_dim = env_spec.action_space.flat_dim
             else:
@@ -37,6 +39,8 @@ class NNQFunction(MLPFunction):
         else:
             self._action_dim = env_spec.action_space.flat_dim
             self._observation_dim = env_spec.observation_space.flat_dim
+            if maddpg:
+                self._observation_dim = env_spec.observation_space.flat_dim
 
         self._obs_pl = tf.placeholder(
             tf.float32,
@@ -54,34 +58,34 @@ class NNQFunction(MLPFunction):
             name, (self._obs_pl, self._action_pl), hidden_layer_sizes)
 
 
-class NNQFunction(MLPFunction):
-    def __init__(self, env_spec, hidden_layer_sizes=(100, 100), name='qf', joint=False, agent_id=None):
-        Serializable.quick_init(self, locals())
-        if isinstance(env_spec, MAEnvSpec):
-            assert agent_id is not None
-            self._observation_dim = env_spec.observation_space[agent_id].flat_dim
-            if joint:
-                self._action_dim = env_spec.action_space.flat_dim
-            else:
-                self._action_dim = env_spec.action_space[agent_id].flat_dim
-        else:
-            self._action_dim = env_spec.action_space.flat_dim
-            self._observation_dim = env_spec.observation_space.flat_dim
-
-        self._obs_pl = tf.placeholder(
-            tf.float32,
-            shape=[None, self._observation_dim],
-            name='observation',
-        )
-
-        self._action_pl = tf.placeholder(
-            tf.float32,
-            shape=[None, self._action_dim],
-            name='actions',
-        )
-
-        super(NNQFunction, self).__init__(
-            name, (self._obs_pl, self._action_pl), hidden_layer_sizes)
+# class NNQFunction(MLPFunction):
+#     def __init__(self, env_spec, hidden_layer_sizes=(100, 100), name='qf', joint=False, agent_id=None):
+#         Serializable.quick_init(self, locals())
+#         if isinstance(env_spec, MAEnvSpec):
+#             assert agent_id is not None
+#             self._observation_dim = env_spec.observation_space[agent_id].flat_dim
+#             if joint:
+#                 self._action_dim = env_spec.action_space.flat_dim
+#             else:
+#                 self._action_dim = env_spec.action_space[agent_id].flat_dim
+#         else:
+#             self._action_dim = env_spec.action_space.flat_dim
+#             self._observation_dim = env_spec.observation_space.flat_dim
+#
+#         self._obs_pl = tf.placeholder(
+#             tf.float32,
+#             shape=[None, self._observation_dim],
+#             name='observation',
+#         )
+#
+#         self._action_pl = tf.placeholder(
+#             tf.float32,
+#             shape=[None, self._action_dim],
+#             name='actions',
+#         )
+#
+#         super(NNQFunction, self).__init__(
+#             name, (self._obs_pl, self._action_pl), hidden_layer_sizes)
 
 
 

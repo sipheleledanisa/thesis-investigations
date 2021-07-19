@@ -197,9 +197,9 @@ class RLAlgorithm(Algorithm):
         self._policy = policy
         self._pool = pool
 
-    @property
-    def policy(self):
-        return self._policy
+    # @property
+    # def policy(self):
+    #     return self._policy
 
     @property
     def env(self):
@@ -394,9 +394,9 @@ class MARLAlgorithm(Algorithm):
         self._policy = policy
         self._pool = pool
 
-    @property
-    def policy(self):
-        return self._policy
+    # @property
+    # def policy(self):
+    #     return self._policy
 
     @property
     def env(self):

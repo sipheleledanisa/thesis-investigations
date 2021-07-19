@@ -7,7 +7,6 @@ class QFPolicyPlotter:
         self._qf = qf
         self._policy = policy
         self._obs_lst = obs_lst
-        #print(obs_lst)
         self._default_action = default_action
         self._n_samples = n_samples
 
@@ -36,9 +35,7 @@ class QFPolicyPlotter:
         [h.remove() for h in self._line_objects]
         self._line_objects = list()
 
-        print(self._obs_lst)
-
-        #self._plot_level_curves()
+        self._plot_level_curves()
         self._plot_action_samples()
 
         plt.draw()
@@ -58,8 +55,7 @@ class QFPolicyPlotter:
         actions[:, self._var_inds[1]] = ygrid.ravel()
 
         for ax, obs in zip(self._ax_lst, self._obs_lst):
-            
-            qs = self._qf.eval(obs[None, :], actions)
+            qs = self._qf.eval(obs[None], actions)
             qs = qs.reshape(xgrid.shape)
 
             cs = ax.contour(xgrid, ygrid, qs, 20)

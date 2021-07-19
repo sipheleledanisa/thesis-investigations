@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 
-from maci.learners import MAVBAC, MASQL
+from maci.learners import MAVBAC, MASQL, ROMMEO
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame, DifferentialGame
 from maci.environments import make_particle_env
@@ -9,19 +9,13 @@ from maci.misc import logger
 import gtimer as gt
 import datetime
 from copy import deepcopy
-from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent
+from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent, rom_agent
 
 import maci.misc.tf_utils as U
 import os
 
-import matplotlib.pyplot as plt
-import glob
-import pandas as pd
-import os.path
-
-
+from keras.backend.tensorflow_backend import set_session
 import tensorflow as tf
-from keras.backend import set_session
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
 sess = tf.Session(config=config)
@@ -46,8 +40,6 @@ def parse_args():
     parser = argparse.ArgumentParser("Reinforcement Learning experiments for multiagent environments")
     # Environment
     # ['particle-simple_spread', 'particle-simple_adversary', 'particle-simple_tag', 'particle-simple_push']
-    # matrix-prison , matrix-prison
-    # pbeauty
     parser.add_argument('-g', "--game_name", type=str, default="diff-ma_softq", help="name of the game")
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
@@ -56,11 +48,13 @@ def parse_args():
     parser.add_argument('-ms', "--max_steps", type=int, default=10000, help="reward type")
     parser.add_argument('-me', "--memory", type=int, default=0, help="reward type")
     parser.add_argument('-n', "--n", type=int, default=2, help="name of the game")
-    parser.add_argument('-bs', "--batch_size", type=int, default=64, help="name of the game")
+    parser.add_argument('-bs', "--batch_size", type=int, default=512, help="name of the game")
     parser.add_argument('-hm', "--hidden_size", type=int, default=100, help="name of the game")
+    parser.add_argument('-ti', "--training_interval", type=int, default=1, help="name of the game")
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
     parser.add_argument('-a', "--aux", type=bool, default=True, help="name of the game")
-    parser.add_argument('-m', "--model_names_setting", type=str, default='MASQL_MASQL', help="models setting agent vs adv")
+    parser.add_argument('-gr', "--global_reward", type=bool, default=False, help="name of the game")
+    parser.add_argument('-m', "--model_names_setting", type=str, default='ROMMEO_ROMMEO', help="models setting agent vs adv")
     return parser.parse_args()
 
 
@@ -91,14 +85,14 @@ def main(arglist):
                          discrete_action=False, tuple_obs=False)
         path_prefix = '{}-{}-{}-{}'.format(game_name, repeated, max_step, memory)
 
-    elif 'particle' in game_name:
-        particle_game_name = game_name.split('-')[-1]
-        env, agent_num, model_name, model_names = get_particle_game(particle_game_name, arglist)
-
     elif 'diff' in game_name:
         diff_game_name = game_name.split('-')[-1]
         agent_num = 2
         env = DifferentialGame(diff_game_name, agent_num)
+
+    elif 'particle' in game_name:
+        particle_game_name = game_name.split('-')[-1]
+        env, agent_num, model_name, model_names = get_particle_game(particle_game_name, arglist)
 
     now = datetime.datetime.now()
     timestamp = now.strftime('%Y-%m-%d %H:%M:%S.%f %Z')
@@ -121,7 +115,7 @@ def main(arglist):
     agents = []
     M = arglist.hidden_size
     batch_size = arglist.batch_size
-    sampler = MASampler(agent_num=agent_num, joint=True, max_path_length=30, min_pool_size=100, batch_size=batch_size)
+    sampler = MASampler(agent_num=agent_num, joint=True, global_reward=arglist.global_reward, max_path_length=25, min_pool_size=100, batch_size=batch_size)
 
     base_kwargs = {
         'sampler': sampler,
@@ -143,6 +137,8 @@ def main(arglist):
                 agent = pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux)
             elif model_name == 'MASQL':
                 agent = masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
+            elif model_name == 'ROMMEO':
+                agent = rom_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
                 if model_name == 'DDPG':
                     joint = False
@@ -150,7 +146,7 @@ def main(arglist):
                 elif model_name == 'MADDPG':
                     joint = True
                     opponent_modelling = False
-                elif model_name == 'DDPG-OM' or model_name == 'DDPG-ToM':
+                elif model_name == 'DDPG-OM':
                     joint = True
                     opponent_modelling = True
                 agent = ddpg_agent(joint, opponent_modelling, model_names, i, env, M, u_range, base_kwargs, game_name=game_name)
@@ -167,7 +163,7 @@ def main(arglist):
         initial_exploration_done = False
         # noise = .1
         noise = 1.
-        alpha = .5
+        alpha = .1
 
 
         for agent in agents:
@@ -175,23 +171,26 @@ def main(arglist):
                 agent.policy.set_noise_level(noise)
             except:
                 pass
-
-        for epoch in gt.timed_for(range(base_kwargs['n_epochs'] + 1)):
-            logger.push_prefix('Epoch #%d | ' % epoch)
-            if epoch % 1 == 0:
+        # alpha = .5
+        for steps in gt.timed_for(range(base_kwargs['n_epochs'] + 1)):
+            # if steps < 500:
+            alpha = .1 + np.exp(-0.1 * max(steps-10, 0)) * 500.
+            # else:
+            #     alpha = .1 + np.exp(-0.1 * max(1000 - 10, 0)) * 500.
+            logger.push_prefix('Epoch #%d | ' % steps)
+            if steps % (25*1000) == 0:
                 print(suffix)
             for t in range(base_kwargs['epoch_length']):
                 # TODO.code consolidation: Add control interval to sampler
                 if not initial_exploration_done:
-                    if epoch >= 20:
+                    if steps >= 10:
                         initial_exploration_done = True
                 sampler.sample()
-                # print('Sampling')
                 if not initial_exploration_done:
                     continue
                 gt.stamp('sample')
-                # print('Sample Done')
-                if epoch == base_kwargs['n_epochs']:
+                print('Sample Done')
+                if steps == base_kwargs['n_epochs']:
                     noise = 0.1
 
                     for agent in agents:
@@ -199,8 +198,8 @@ def main(arglist):
                             agent.policy.set_noise_level(noise)
                         except:
                             pass
-                    # alpha = .1
-                if epoch > base_kwargs['n_epochs'] / 10:
+                    # alpha = 10.
+                if steps > base_kwargs['n_epochs'] / 10:
                     noise = 0.1
                     for agent in agents:
                         try:
@@ -208,21 +207,22 @@ def main(arglist):
                         except:
                             pass
                     # alpha = .1
-                if epoch > base_kwargs['n_epochs'] / 5:
+                if steps > base_kwargs['n_epochs'] / 5:
                     noise = 0.05
                     for agent in agents:
                         try:
                             agent.policy.set_noise_level(noise)
                         except:
                             pass
-                if epoch > base_kwargs['n_epochs'] / 6:
+                if steps > base_kwargs['n_epochs'] / 6:
                     noise = 0.01
                     for agent in agents:
                         try:
                             agent.policy.set_noise_level(noise)
                         except:
                             pass
-
+                if steps % arglist.training_interval != 0:
+                    continue
                 for j in range(base_kwargs['n_train_repeat']):
                     batch_n = []
                     recent_batch_n = []
@@ -239,11 +239,24 @@ def main(arglist):
 
                     # print(len(batch_n))
                     target_next_actions_n = []
-                    try:
-                        for agent, batch in zip(agents, batch_n):
-                            target_next_actions_n.append(agent._target_policy.get_actions(batch['next_observations']))
-                    except:
-                        pass
+                    # try:
+                    all_obs = np.array(np.concatenate([batch['observations'] for batch in batch_n], axis=-1))
+                    all_next_obs = np.array(np.concatenate([batch['next_observations'] for batch in batch_n], axis=-1))
+                    # print(all_obs[0])
+                    for batch in batch_n:
+                        # print('making all obs')
+                        batch['all_observations'] = deepcopy(all_obs)
+                        batch['all_next_observations'] = deepcopy(all_next_obs)
+                    opponent_current_actions_n = []
+                    for agent, batch in zip(agents, batch_n):
+                        target_next_actions_n.append(agent.target_policy.get_actions(batch['next_observations']))
+                        opponent_current_actions_n.append(agent.policy.get_actions(batch['observations']))
+
+                    for i, agent in enumerate(agents):
+                        batch_n[i]['opponent_current_actions'] = np.reshape(
+                            np.delete(deepcopy(opponent_current_actions_n), i, 0), (-1, agent._opponent_action_dim))
+                    # except:
+                    #     pass
 
 
                     opponent_actions_n = np.array([batch['actions'] for batch in batch_n])
@@ -252,16 +265,19 @@ def main(arglist):
                     ####### figure out
                     recent_opponent_observations_n = []
                     for batch in recent_batch_n:
-                        print(batch['observations'].shape)
                         recent_opponent_observations_n.append(batch['observations'])
 
 
-                    current_actions = [agents[i]._policy.get_actions(batch_n[i]['next_observations'])[0][0] for i in range(agent_num)]
+                    current_actions = [agents[i].policy.get_actions(batch_n[i]['next_observations'])[0][0] for i in range(agent_num)]
+                    current_mus = [agents[i].policy.get_mu(batch_n[i]['next_observations'])[0][0] for i in
+                                       range(agent_num)]
+                    current_opponent_mus = [agents[i].opponent_policy.get_mu(batch_n[i]['next_observations'])[0][0] for i in
+                                       range(agent_num)]
                     all_actions_k = []
                     for i, agent in enumerate(agents):
                         if isinstance(agent, MAVBAC):
                             if agent._k > 0:
-                                batch_actions_k = agent._policy.get_all_actions(batch_n[i]['next_observations'])
+                                batch_actions_k = agent.policy.get_all_actions(batch_n[i]['next_observations'])
                                 actions_k = [a[0][0] for a in batch_actions_k]
                                 all_actions_k.append(';'.join(list(map(str, actions_k))))
                     if len(all_actions_k) > 0:
@@ -269,6 +285,10 @@ def main(arglist):
                             f.write(','.join(list(map(str, all_actions_k))) + '\n')
                     with open('{}/policy.csv'.format(policy_dir), 'a') as f:
                         f.write(','.join(list(map(str, current_actions)))+'\n')
+                    with open('{}/mus.csv'.format(policy_dir), 'a') as f:
+                        f.write(','.join(list(map(str, current_mus)))+'\n')
+                    with open('{}/opponent_mus.csv'.format(policy_dir), 'a') as f:
+                        f.write(','.join(list(map(str, current_opponent_mus)))+'\n')
                     # print('============')
                     for i, agent in enumerate(agents):
                         try:
@@ -283,33 +303,12 @@ def main(arglist):
                                 batch_n[i]['opponent_next_actions'] = agent.opponent_policy.get_actions(batch_n[i]['next_observations'])
                             else:
                                 batch_n[i]['opponent_next_actions'] = np.reshape(np.delete(deepcopy(target_next_actions_n), i, 0), (-1, agent._opponent_action_dim))
-                        if isinstance(agent, MAVBAC) or isinstance(agent, MASQL):
-                            agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i], annealing=alpha)
+                        if isinstance(agent, MAVBAC) or isinstance(agent, MASQL) or isinstance(agent, ROMMEO):
+                            agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i], annealing=alpha)
                         else:
-                            agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i])
+                            agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i])
                 gt.stamp('train')
-
-
-            # #self._evaluate(epoch)
-
-            # for agent in agents:
-            #     params = agent.get_snapshot(epoch)
-            #     logger.save_itr_params(epoch, params)
-            # times_itrs = gt.get_times().stamps.itrs
-            
-            # eval_time = times_itrs['eval'][-1] if epoch > 1 else 0
-            # total_time = gt.get_times().total
-            # logger.record_tabular('time-train', times_itrs['train'][-1])
-            # logger.record_tabular('time-eval', eval_time)
-            # logger.record_tabular('time-sample', times_itrs['sample'][-1])
-            # logger.record_tabular('time-total', total_time)
-            # logger.record_tabular('epoch', epoch)
-
-            # sampler.log_diagnostics()
-
-            # logger.dump_tabular(with_prefix=False)
-            # logger.pop_prefix()
-            # sampler.terminate()
+            sampler.terminate()
 
 
 

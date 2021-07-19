@@ -31,6 +31,7 @@ class MAVBAC(MARLAlgorithm):
             policy,
             target_policy,
             conditional_policy,
+            name='PR2',
             plotter=None,
             policy_lr=1E-3,
             qf_lr=1E-3,
@@ -55,15 +56,15 @@ class MAVBAC(MARLAlgorithm):
             aux=True
     ):
         super(MAVBAC, self).__init__(**base_kwargs)
-
+        self.name = name
         self._env = env
         self._pool = pool
         self.qf = qf
         self.joint_qf = joint_qf
         self.target_joint_qf = target_joint_qf
-        self._policy = policy
-        self._target_policy = target_policy
-        self._conditional_policy = conditional_policy
+        self.policy = policy
+        self.target_policy = target_policy
+        self.conditional_policy = conditional_policy
         self.plotter = plotter
         self.joint = joint
         self.joint_policy = joint_policy
@@ -160,10 +161,10 @@ class MAVBAC(MARLAlgorithm):
         with tf.variable_scope('target_joint_q_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self.opponent_action_range is None:
                 opponent_target_actions = tf.random_uniform(
-                    (1, self._value_n_particles, self._opponent_action_dim), *self._env.action_range)
+                    (1, self._value_n_particles, self._opponent_action_dim), *(-1., 1.))
             else:
                 opponent_target_actions = tf.random_uniform(
-                    (1, self._value_n_particles, self._opponent_action_dim), *self._env.action_range)
+                    (1, self._value_n_particles, self._opponent_action_dim), *(-1., 1.))
                 if self.opponent_action_range_normalize:
                     opponent_target_actions = tf.nn.softmax(opponent_target_actions, axis=-1)
             q_value_targets = self.target_joint_qf.output_for(
@@ -229,7 +230,7 @@ class MAVBAC(MARLAlgorithm):
         # opponent_target_actions = tf.random_uniform(
         #     (1, self._value_n_particles, self._opponent_action_dim), -1, 1)
 
-        opponent_target_actions = self._conditional_policy.actions_for(
+        opponent_target_actions = self.conditional_policy.actions_for(
             observations=self._observations_ph,
             actions=self._actions_pl,
             n_action_samples=self._value_n_particles,
@@ -291,7 +292,7 @@ class MAVBAC(MARLAlgorithm):
     def _create_conditional_policy_svgd_update(self):
         """Create a minimization operation for policy update (SVGD)."""
         # print('actions')
-        actions = self._conditional_policy.actions_for(
+        actions = self.conditional_policy.actions_for(
             observations=self._observations_ph,
             actions=self._actions_pl,
             n_action_samples=self._kernel_n_particles,
@@ -358,19 +359,19 @@ class MAVBAC(MARLAlgorithm):
         # Propagate the gradient through the policy network (Equation 14).
         gradients = tf.gradients(
             updated_actions,
-            self._conditional_policy.get_params_internal(),
+            self.conditional_policy.get_params_internal(),
             grad_ys=action_gradients)
 
         surrogate_loss = tf.reduce_sum([
             tf.reduce_sum(w * tf.stop_gradient(g))
-            for w, g in zip(self._conditional_policy.get_params_internal(), gradients)
+            for w, g in zip(self.conditional_policy.get_params_internal(), gradients)
         ])
         with tf.variable_scope('conditional_policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
                 svgd_training_op = optimizer.minimize(
                     loss=-surrogate_loss,
-                    var_list=self._conditional_policy.get_params_internal())
+                    var_list=self.conditional_policy.get_params_internal())
                 self._training_ops.append(svgd_training_op)
 
     def _create_target_ops(self):
@@ -380,8 +381,8 @@ class MAVBAC(MARLAlgorithm):
 
         source_q_params = self.joint_qf.get_params_internal()
         target_q_params = self.target_joint_qf.get_params_internal()
-        source_p_params = self._policy.get_params_internal()
-        target_p_params = self._target_policy.get_params_internal()
+        source_p_params = self.policy.get_params_internal()
+        target_p_params = self.target_policy.get_params_internal()
 
         self._target_ops = [
                                tf.assign(target, (1 - self._tau) * target + self._tau * source)

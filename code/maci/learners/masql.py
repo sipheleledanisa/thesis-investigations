@@ -5,7 +5,6 @@ from maci.misc import logger
 from maci.misc.overrides import overrides
 
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
-from maci.misc.plotter import QFPolicyPlotter
 from maci.misc import tf_utils
 
 from .base import MARLAlgorithm
@@ -29,6 +28,7 @@ class MASQL(MARLAlgorithm):
             qf,
             target_qf,
             policy,
+            name='MASQL',
             plotter=None,
             policy_lr=1E-3,
             qf_lr=1E-3,
@@ -52,12 +52,13 @@ class MASQL(MARLAlgorithm):
     ):
         super(MASQL, self).__init__(**base_kwargs)
 
-
+        self.name = name
         self._env = env
         self._pool = pool
         self.qf = qf
         self.target_qf = target_qf
-        self._policy = policy
+        self.policy = policy
+        self.target_policy = policy
         self.plotter = plotter
 
         self.agent_id = agent_id
@@ -160,12 +161,12 @@ class MASQL(MARLAlgorithm):
                 target_actions = tf.random_uniform(
                     (1, self._value_n_particles, self._action_dim), *self._env.action_range)
                 opponent_target_actions = tf.random_uniform(
-                    (1, self._value_n_particles, self._opponent_action_dim), *self._env.action_range)
+                    (1, self._value_n_particles, self._opponent_action_dim), *(-1., 1.))
             else:
                 target_actions = tf.random_uniform(
-                    (1, self._value_n_particles, self._action_dim), *self._env.action_range)
+                    (1, self._value_n_particles, self._action_dim), *(-1., 1.))
                 opponent_target_actions = tf.random_uniform(
-                    (1, self._value_n_particles, self._opponent_action_dim), *self._env.action_range)
+                    (1, self._value_n_particles, self._opponent_action_dim), *(-1., 1.))
                 if self.opponent_action_range_normalize:
                     target_actions = tf.nn.softmax(target_actions, axis=-1)
                     opponent_target_actions = tf.nn.softmax(opponent_target_actions, axis=-1)
@@ -304,8 +305,7 @@ class MASQL(MARLAlgorithm):
     def _do_training(self, iteration, batch, annealing=1.):
         """Run the operations for updating training and target ops."""
 
-        feed_dict = self._get_feed_dict(batch, annealing=1.)
-#        self.log_diagnostics(batch,annealing)
+        feed_dict = self._get_feed_dict(batch, annealing)
         self._sess.run(self._training_ops, feed_dict)
         if iteration % self._qf_target_update_interval == 0 and self._train_qf:
             self._sess.run(self._target_ops)
@@ -326,7 +326,7 @@ class MASQL(MARLAlgorithm):
         return feeds
 
     @overrides
-    def log_diagnostics(self, batch,annealing):
+    def log_diagnostics(self, batch):
         """Record diagnostic information.
         Records the mean and standard deviation of Q-function and the
         squared Bellman residual of the  s (mean squared Bellman error)
@@ -334,7 +334,7 @@ class MASQL(MARLAlgorithm):
         Also call the `draw` method of the plotter, if plotter is defined.
         """
 
-        feeds = self._get_feed_dict(batch,annealing)
+        feeds = self._get_feed_dict(batch)
         qf, bellman_residual = self._sess.run(
             [self._q_values, self._bellman_residual], feeds)
 
@@ -343,9 +343,8 @@ class MASQL(MARLAlgorithm):
         logger.record_tabular('mean-sq-bellman-error-agent-{}'.format(self.agent_id), bellman_residual)
 
         self.policy.log_diagnostics(batch)
-        if self.plotter:
-            print("Plotter is not None.")
-            self.plotter.draw()
+        # if self.plotter:
+        #     self.plotter.draw()
 
     @overrides
     def get_snapshot(self, epoch):

@@ -62,7 +62,6 @@ class DifferentialGame(Serializable):
             y1 = -5.
             y2 = 5.
             c = 10.
-
             def max_f(a1, a2):
                 f1 = h1 * (-(np.square(a1 - x1) / s1) - (np.square(a2 - y1) / s1))
                 f2 = h2 * (-(np.square(a1 - x2) / s2) - (np.square(a2 - y2) / s2)) + c
@@ -79,9 +78,12 @@ class DifferentialGame(Serializable):
 
     def step(self, actions):
         assert len(actions) == self.agent_num
+        print('actions', actions)
+        actions = np.array(actions).reshape((self.agent_num,)) * self.action_range[1]
+        print('scaled', actions)
         reward_n = np.zeros((self.agent_num,))
         for i in range(self.agent_num):
-            # print('actions', actions)
+            print('actions', actions)
             reward_n[i] = self.payoff[i](*tuple(actions))
         self.rewards = reward_n
         print(reward_n)

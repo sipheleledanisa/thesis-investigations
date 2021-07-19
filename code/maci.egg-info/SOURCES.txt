@@ -35,12 +35,12 @@ maci/environments/pbeauty_game.py
 maci/environments/stochastic_matrix_game.py
 maci/learners/__init__.py
 maci/learners/base.py
+maci/learners/bicnet.py
 maci/learners/maddpg.py
 maci/learners/masac.py
 maci/learners/masql.py
 maci/learners/mavb_ac.py
-maci/learners/mavb_q.py
-maci/learners/sac.py
+maci/learners/rommeo_ac.py
 maci/learners/tabular/JAL.py
 maci/learners/tabular/MAVB.py
 maci/learners/tabular/PHC.py

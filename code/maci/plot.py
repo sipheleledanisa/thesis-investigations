@@ -1,15 +1,12 @@
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import glob
-import pandas as pd
-import os.path
 
 
 FONTSIZE = 18
 
 
-def plot_dynamics(history_pi_0, history_pi_1, pi_alpha_gradient_history, pi_beta_gradient_history, title='dummy_title'):
+def plot_dynamics(history_pi_0, history_pi_1, pi_alpha_gradient_history, pi_beta_gradient_history, title=''):
     cmap = plt.get_cmap('viridis')
     colors = range(len(history_pi_1))
     fig = plt.figure(figsize=(6, 5))
@@ -40,7 +37,7 @@ def plot_dynamics(history_pi_0, history_pi_1, pi_alpha_gradient_history, pi_beta
     plt.show()
 
 
-def plot_Q(data, row_labels, col_labels, title='dummy_title', ax=None,
+def plot_Q(data, row_labels, col_labels, title, ax=None,
           cbar_kw={}, cbarlabel="", **kwargs):
     fig = plt.figure(figsize=(6.5, 5))
     ax = fig.add_subplot(111)
@@ -168,4 +165,3 @@ def annotate_heatmap(im, data=None, valfmt="{x:.1f}",
             texts.append(text)
 
     return texts
-
