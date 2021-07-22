@@ -4,7 +4,7 @@ import argparse
 from maci.learners import MAVBAC, MASQL, ROMMEO
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame, DifferentialGame
-from maci.environments import make_particle_env
+#from maci.environments import make_particle_env
 from maci.misc import logger
 import gtimer as gt
 import datetime
@@ -45,7 +45,7 @@ def parse_args():
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
     parser.add_argument('-r', "--reward_type", type=str, default="abs", help="reward type")
     parser.add_argument('-mp', "--max_path_length", type=int, default=1, help="reward type")
-    parser.add_argument('-ms', "--max_steps", type=int, default=2000, help="reward type")
+    parser.add_argument('-ms', "--max_steps", type=int, default=12000, help="reward type")
     parser.add_argument('-me', "--memory", type=int, default=0, help="reward type")
     parser.add_argument('-n', "--n", type=int, default=2, help="name of the game")
     parser.add_argument('-bs', "--batch_size", type=int, default=512, help="name of the game")
@@ -212,7 +212,7 @@ def main(arglist):
                         except:
                             pass
                 if steps > base_kwargs['n_epochs'] / 6:
-                    noise = 0.01
+                    #noise = 0.01
                     for agent in agents:
                         try:
                             agent.policy.set_noise_level(noise)
