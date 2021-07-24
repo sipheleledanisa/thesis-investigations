@@ -230,63 +230,60 @@ class MASQL(MARLAlgorithm):
         # actions, and later split them into two sets: `fixed_actions` are used
         # to evaluate the expectation indexed by `j` and `updated_actions`
         # the expectation indexed by `i`.
-        #n_updated_actions = int(
-        #    self._kernel_n_particles * self._kernel_update_ratio)
-        #n_fixed_actions = self._kernel_n_particles - n_updated_actions
+        n_updated_actions = int(
+            self._kernel_n_particles * self._kernel_update_ratio)
+        n_fixed_actions = self._kernel_n_particles - n_updated_actions
 
-        #fixed_actions, updated_actions = tf.split(
-        #    actions, [n_fixed_actions, n_updated_actions], axis=1)
-        #fixed_actions = tf.stop_gradient(fixed_actions)
-        #assert_shape(fixed_actions, [None, n_fixed_actions, self._action_dim + self._opponent_action_dim])
-        #assert_shape(updated_actions,
-        #             [None, n_updated_actions, self._action_dim + self._opponent_action_dim])
+        fixed_actions, updated_actions = tf.split(
+            actions, [n_fixed_actions, n_updated_actions], axis=1)
+        fixed_actions = tf.stop_gradient(fixed_actions)
+        assert_shape(fixed_actions, [None, n_fixed_actions, self._action_dim + self._opponent_action_dim])
+        assert_shape(updated_actions,
+                     [None, n_updated_actions, self._action_dim + self._opponent_action_dim])
         # print('target actions')
         svgd_target_values = self.qf.output_for(
-            self._observations_ph[:, None, :], actions, reuse=True) / self._annealing_pl
+            self._observations_ph[:, None, :], fixed_actions, reuse=True) / self._annealing_pl
 
         # Target log-density. Q_soft in Equation 13:
         squash_correction = tf.reduce_sum(
-            tf.log(1 - actions**2 + EPS), axis=-1)
+            tf.log(1 - fixed_actions**2 + EPS), axis=-1)
         log_p = svgd_target_values + squash_correction
 
-        grad_log_p = tf.gradients(log_p, actions)[0]
+        grad_log_p = tf.gradients(log_p, fixed_actions)[0]
         grad_log_p = tf.expand_dims(grad_log_p, axis=2)
         grad_log_p = tf.stop_gradient(grad_log_p)
-        assert_shape(grad_log_p, [None, self._kernel_n_particles, 1, self._action_dim + self._opponent_action_dim])
+        assert_shape(grad_log_p, [None, n_fixed_actions, 1, self._action_dim + self._opponent_action_dim])
 
-        kernel_dict = self._kernel_fn(xs=actions, ys=actions)
+        #flipped actions
 
-        #flip terms
-
-            
-        #svgd_target_values_flip_acts = self.qf.output_for(
-        #    self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
+        svgd_target_values_ua = self.qf.output_for(
+        self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
 
         # Target log-density. Q_soft in Equation 13:
-        #squash_correction_flip_acts = tf.reduce_sum(
-        #    tf.log(1 - updated_actions**2 + EPS), axis=-1)
-        #log_p_flip_acts = svgd_target_values_flip_acts + squash_correction_flip_acts
+        squash_correction_ua = tf.reduce_sum(
+            tf.log(1 - updated_actions**2 + EPS), axis=-1)
+        log_p_ua = svgd_target_values_ua + squash_correction_ua
 
-        #grad_log_p_fa = tf.gradients(log_p_flip_acts, updated_actions)[0]
-        #grad_log_p_fa = tf.expand_dims(grad_log_p_fa, axis=2)
-        #grad_log_p_fa = tf.stop_gradient(grad_log_p_fa)
-        #assert_shape(grad_log_p_fa, [None, n_updated_actions, 1, self._action_dim + self._opponent_action_dim])
+        grad_log_p_ua = tf.gradients(log_p_ua, updated_actions)[0]
+        grad_log_p_ua = tf.expand_dims(grad_log_p_ua, axis=2)
+        grad_log_p_ua = tf.stop_gradient(grad_log_p_ua)
+        assert_shape(grad_log_p_ua, [None, n_updated_actions, 1, self._action_dim + self._opponent_action_dim])
 
-        #kernel_dict = self._kernel_fn(xs=fixed_actions, ys=updated_actions)
+        kernel_dict = self._kernel_fn(xs=fixed_actions, ys=updated_actions)
 
         # Kernel function in Equation 13:
         kappa = tf.expand_dims(kernel_dict["output"], dim=3)
-        assert_shape(kappa, [None, self._kernel_n_particles, self._kernel_n_particles, 1])
+        assert_shape(kappa, [None, n_fixed_actions, n_updated_actions, 1])
 
         # KSD:
 
-        symmetric_mult= grad_log_p*kappa*(grad_log_p)
+        symmetric_mult= grad_log_p*kappa*(grad_log_p_ua)
 
 
         right_glp_mult= grad_log_p*kernel_dict["gradient"]
 
 
-        lef_glp_mult=kernel_dict["gradient"]*grad_log_p
+        lef_glp_mult=kernel_dict["gradient"]*grad_log_p_ua
 
         tr_kappa_grad2=kernel_dict["tr_gradient_2x"]
 
@@ -294,8 +291,9 @@ class MASQL(MARLAlgorithm):
 
         ksd_= symmetric_mult+right_glp_mult+lef_glp_mult+tr_kappa_grad2
 
-        ksd_=tf.reduce_mean(ksd_)
+        ksd_=tf.reduce_sum(tf.reduce_sum(ksd_,1),1)/(n_updated_actions*n_fixed_actions)
 
+        print("###########################################################################################################",ksd_)
 
         with tf.variable_scope('policy_opt_agent_{}'.format(self.agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
@@ -304,7 +302,7 @@ class MASQL(MARLAlgorithm):
                 svgd_training_op = optimizer.minimize(
                     loss=-ksd_,
                     var_list=self.policy.get_params_internal(),
-                    grad_loss=0.5*ksd_,
+                    #grad_loss=0.5*ksd_,
                     )
                 self._training_ops.append(svgd_training_op)
 
