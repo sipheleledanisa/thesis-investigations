@@ -279,9 +279,7 @@ class MASQL(MARLAlgorithm):
 
         symmetric_mult= grad_log_p*kappa*(grad_log_p_ua)
 
-
         right_glp_mult= grad_log_p*kernel_dict["gradient"]
-
 
         lef_glp_mult=kernel_dict["gradient"]*grad_log_p_ua
 
@@ -291,20 +289,30 @@ class MASQL(MARLAlgorithm):
 
         ksd_= symmetric_mult+right_glp_mult+lef_glp_mult+tr_kappa_grad2
 
-        ksd_=tf.reduce_sum(tf.reduce_sum(ksd_,1),1)/(n_updated_actions*n_fixed_actions)
+        # Stein Variational Gradient in Equation 13:
+        action_gradients = tf.gradients(ksd_,fixed_actions) #tf.reduce_mean(
+            #kappa * grad_log_p + kernel_dict["gradient"], reduction_indices=1)
+        #assert_shape(action_gradients,
+        #             [None, n_updated_actions, self._action_dim + self._opponent_action_dim])
 
-        print("###########################################################################################################",ksd_)
+        # Propagate the gradient through the policy network (Equation 14).
+        gradients = tf.gradients(
+            updated_actions,
+            self.policy.get_params_internal(),
+            grad_ys=action_gradients)
 
+        surrogate_loss = tf.reduce_sum([
+            tf.reduce_sum(w * tf.stop_gradient(g))
+            for w, g in zip(self.policy.get_params_internal(), gradients)
+        ])
         with tf.variable_scope('policy_opt_agent_{}'.format(self.agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
-
                 svgd_training_op = optimizer.minimize(
-                    loss=-ksd_,
-                    var_list=self.policy.get_params_internal(),
-                    #grad_loss=0.5*ksd_,
-                    )
+                    loss=-surrogate_loss,
+                    var_list=self.policy.get_params_internal())
                 self._training_ops.append(svgd_training_op)
+
 
     def _create_target_ops(self):
         """Create tensorflow operation for updating the target Q-function."""

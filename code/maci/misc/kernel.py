@@ -73,7 +73,7 @@ def adaptive_isotropic_gaussian_kernel(xs, ys, h_min=1e-3):
 
     diff_expanded=(tf.expand_dims(diff, -1)-tf.expand_dims(-diff,-2))/2 # .. x Kx x Ky x D x 1
 
-    kappa_grad2= 2*kappa_grad_expanded/h_expanded_4x-2*diff_expanded**2/h_expanded_4x*kappa_grad_expanded # ... Kx x Ky x D x 1
+    kappa_grad2= -2*tf.expand_dims(kappa_expanded,-1)/h_expanded_4x+4*diff_expanded/h_expanded_4x*kappa_grad_expanded # ... Kx x Ky x D x 1
 
     tr_kappa_grad2= tf.reduce_sum(kappa_grad2,-2)
 
