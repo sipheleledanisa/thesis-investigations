@@ -9,6 +9,8 @@ from maci.misc import tf_utils
 
 from .base import MARLAlgorithm
 
+tf.enable_eager_execution()
+
 EPS = 1e-6
 
 
@@ -33,10 +35,10 @@ class MASQL(MARLAlgorithm):
             policy_lr=1E-3,
             qf_lr=1E-3,
             tau=0.01,
-            value_n_particles=16,
+            value_n_particles=1,
             td_target_update_interval=1,
             kernel_fn=adaptive_isotropic_gaussian_kernel,
-            kernel_n_particles=16,
+            kernel_n_particles=1,
             kernel_update_ratio=0.5,
             discount=0.99,
             reward_scale=.1,
@@ -95,7 +97,7 @@ class MASQL(MARLAlgorithm):
         self._target_ops = []
 
         self._create_td_update()
-        self._create_svgd_update()
+        self._create_svgd_update() #or self._create_ksd_update()
         self._create_target_ops()
 
         if use_saved_qf:
@@ -173,6 +175,8 @@ class MASQL(MARLAlgorithm):
 
             target_actions = tf.concat([target_actions, opponent_target_actions], axis=2)
 
+
+
             q_value_targets = self.target_qf.output_for(
                 observations=self._next_observations_ph[:, None, :],
                 actions=target_actions)
@@ -210,6 +214,87 @@ class MASQL(MARLAlgorithm):
                 self._training_ops.append(td_train_op)
 
         self._bellman_residual = bellman_residual
+
+    def _create_ksd_update(self):
+        """Create a minimization operation for policy update (KSD)."""
+        # print('actions')
+        actions = self.policy.actions_for(
+            observations=self._observations_ph,
+            n_action_samples=self._kernel_n_particles,
+            reuse=True)
+        assert_shape(actions,
+                     [None, self._kernel_n_particles, self._action_dim + self._opponent_action_dim])
+
+     
+        n_updated_actions = int(
+            self._kernel_n_particles * self._kernel_update_ratio)
+        n_fixed_actions = self._kernel_n_particles - n_updated_actions
+
+        fixed_actions, updated_actions = tf.split(
+            actions, [n_fixed_actions, n_updated_actions], axis=1)
+        fixed_actions = tf.stop_gradient(fixed_actions)
+        assert_shape(fixed_actions, [None, n_fixed_actions, self._action_dim + self._opponent_action_dim])
+        assert_shape(updated_actions,
+                     [None, n_updated_actions, self._action_dim + self._opponent_action_dim])
+       
+        svgd_target_values = self.qf.output_for(
+            self._observations_ph[:, None, :], fixed_actions, reuse=True) / self._annealing_pl
+
+        # Target log-density. Q_soft in Equation 13:
+        squash_correction = tf.reduce_sum(
+            tf.log(1 - fixed_actions**2 + EPS), axis=-1)
+        log_p = svgd_target_values + squash_correction
+
+        grad_log_p = tf.gradients(log_p, fixed_actions)[0]
+        grad_log_p = tf.expand_dims(grad_log_p, axis=2)
+        grad_log_p = tf.stop_gradient(grad_log_p)
+        assert_shape(grad_log_p, [None, n_fixed_actions, 1, self._action_dim + self._opponent_action_dim])
+
+        #second samples (the primed variables, say)
+
+        svgd_target_values_ua = self.qf.output_for(
+        self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
+
+        # Target log-density. Q_soft in Equation 13:
+        squash_correction_ua = tf.reduce_sum(
+            tf.log(1 - updated_actions**2 + EPS), axis=-1)
+        log_p_ua = svgd_target_values_ua + squash_correction_ua
+
+        grad_log_p_ua = tf.gradients(log_p_ua, updated_actions)[0]
+        grad_log_p_ua = tf.expand_dims(grad_log_p_ua, axis=2)
+        grad_log_p_ua = tf.stop_gradient(grad_log_p_ua)
+        assert_shape(grad_log_p_ua, [None, n_updated_actions, 1, self._action_dim + self._opponent_action_dim])
+
+        kernel_dict = self._kernel_fn(xs=fixed_actions, ys=updated_actions)
+
+        # Kernel function in Equation 13:
+        kappa = tf.expand_dims(kernel_dict["output"], dim=3)
+        assert_shape(kappa, [None, n_fixed_actions, n_updated_actions, 1])
+
+        # KSD:
+        ksd = grad_log_p*kappa*(grad_log_p_ua)+grad_log_p*kernel_dict["gradient"]+kernel_dict["gradient"]*grad_log_p_ua + kernel_dict["tr_kappa_grad_grad"]
+
+
+        #  in Equation 13:
+        action_gradients = tf.gradients(ksd,fixed_actions) 
+
+        # Propagate the gradient through the policy network (Equation 14).
+        gradients = tf.gradients(
+            updated_actions,
+            self.policy.get_params_internal(),
+            grad_ys=action_gradients)
+
+        surrogate_loss = tf.reduce_sum([
+            tf.reduce_sum(w * tf.stop_gradient(g))
+            for w, g in zip(self.policy.get_params_internal(), gradients)
+        ])
+        with tf.variable_scope('policy_opt_agent_{}'.format(self.agent_id), reuse=tf.AUTO_REUSE):
+            if self._train_policy:
+                optimizer = tf.train.AdamOptimizer(self._policy_lr)
+                svgd_training_op = optimizer.minimize(
+                    loss=-surrogate_loss,
+                    var_list=self.policy.get_params_internal())
+                self._training_ops.append(svgd_training_op)
 
     def _create_svgd_update(self):
         """Create a minimization operation for policy update (SVGD)."""
@@ -279,6 +364,8 @@ class MASQL(MARLAlgorithm):
                     loss=-surrogate_loss,
                     var_list=self.policy.get_params_internal())
                 self._training_ops.append(svgd_training_op)
+
+
 
     def _create_target_ops(self):
         """Create tensorflow operation for updating the target Q-function."""

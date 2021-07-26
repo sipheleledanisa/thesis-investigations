@@ -28,7 +28,7 @@ def adaptive_isotropic_gaussian_kernel(xs, ys, h_min=1e-3):
     Kx, D = xs.get_shape().as_list()[-2:]
     Ky, D2 = ys.get_shape().as_list()[-2:]
     assert D == D2
-
+    print("Leading dimension")
     leading_shape = tf.shape(xs)[:-2]
 
     # Compute the pairwise distances of left and right particles.
@@ -56,6 +56,7 @@ def adaptive_isotropic_gaussian_kernel(xs, ys, h_min=1e-3):
     h_expanded_twice = tf.expand_dims(tf.expand_dims(h, -1), -1)
     # ... x 1 x 1
 
+
     kappa = tf.exp(-dist_sq / h_expanded_twice)  # ... x Kx x Ky
 
     # Construct the gradient
@@ -65,5 +66,15 @@ def adaptive_isotropic_gaussian_kernel(xs, ys, h_min=1e-3):
 
     kappa_grad = -2 * diff / h_expanded_thrice * kappa_expanded
     # ... x Kx x Ky x D
+    
+    h_expanded_4x= tf.expand_dims(h_expanded_thrice,-1) # .. x 1 x 1 x 1 x 1
 
-    return {"output": kappa, "gradient": kappa_grad}
+    kappa_grad_expanded= tf.expand_dims(kappa_grad,-1) # ..x Kx x Ky x D x 1
+
+    diff_expanded=(tf.expand_dims(diff, -1)-tf.expand_dims(-diff,-2))/2 # .. x Kx x Ky x D x 1
+
+    kappa_grad_grad= -2*tf.expand_dims(kappa_expanded,-1)/h_expanded_4x+4*diff_expanded/h_expanded_4x*kappa_grad_expanded # ... Kx x Ky x D x D
+
+    tr_kappa_grad_grad= tf.reduce_sum(kappa_grad_grad,-2) # ... Kx x Ky x D
+
+    return {"output": kappa, "gradient": kappa_grad, "tr_kappa_grad_grad": tr_kappa_grad_grad}
