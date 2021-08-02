@@ -7,72 +7,15 @@ from maci.core.serializable import Serializable
 from maci.misc import logger
 from maci.misc.overrides import overrides
 
-from .base import RLAlgorithm
+from .base import MARLAlgorithm, RLAlgorithm
 
 
 def td_target(reward, discount, next_value):
     return reward + discount * next_value
 
 
-class MASAC(RLAlgorithm, Serializable):
-    """Soft Actor-Critic (SAC)
+class MASAC(MARLAlgorithm):
 
-    Example:
-    ```python
-
-    env = normalize(SwimmerEnv())
-
-    pool = SimpleReplayPool(env_spec=env.spec, max_pool_size=1E6)
-
-    base_kwargs = dict(
-        min_pool_size=1000,
-        epoch_length=1000,
-        n_epochs=1000,
-        batch_size=64,
-        scale_reward=1,
-        n_train_repeat=1,
-        eval_render=False,
-        eval_n_episodes=1,
-        eval_deterministic=True,
-    )
-
-    M = 100
-    qf = NNQFunction(env_spec=env.spec, hidden_layer_sizes=(M, M))
-
-    vf = NNVFunction(env_spec=env.spec, hidden_layer_sizes=(M, M))
-
-    policy = GMMPolicy(
-        env_spec=env.spec,
-        K=2,
-        hidden_layers=(M, M),
-        qf=qf,
-        reg=0.001
-    )
-
-    algorithm = SAC(
-        base_kwargs=base_kwargs,
-        env=env,
-        policy=policy,
-        pool=pool,
-        qf=qf,
-        vf=vf,
-
-        lr=3E-4,
-        discount=0.99,
-        tau=0.01,
-
-        save_full_state=False
-    )
-
-    algorithm.train()
-    ```
-
-    References
-    ----------
-    [1] Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine, "Soft
-        Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning
-        with a Stochastic Actor," Deep Learning Symposium, NIPS 2017.
-    """
 
     def __init__(
             self,
@@ -103,28 +46,23 @@ class MASAC(RLAlgorithm, Serializable):
         Args:
             base_kwargs (dict): dictionary of base arguments that are directly
                 passed to the base `RLAlgorithm` constructor.
-
             env (`rllab.Env`): rllab environment object.
             policy: (`rllab.NNPolicy`): A policy function approximator.
             initial_exploration_policy: ('Policy'): A policy that we use
                 for initial exploration which is not trained by the algorithm.
-
             qf1 (`valuefunction`): First Q-function approximator.
             qf2 (`valuefunction`): Second Q-function approximator. Usage of two
                 Q-functions improves performance by reducing overestimation
                 bias.
             vf (`ValueFunction`): Soft value function approximator.
-
             pool (`PoolBase`): Replay buffer to add gathered samples to.
             plotter (`QFPolicyPlotter`): Plotter instance to be used for
                 visualizing Q-function during trai.ning.
-
             lr (`float`): Learning rate used for the function approximators.
             discount (`float`): Discount factor for Q-function updates.
             tau (`float`): Soft value function target update weight.
             target_update_interval ('int'): Frequency at which target network
                 updates occur in iterations.
-
             reparameterize ('bool'): If True, we use a gradient estimator for
                 the policy derived using the reparameterization trick. We use
                 a likelihood ratio based estimator otherwise.
@@ -137,14 +75,14 @@ class MASAC(RLAlgorithm, Serializable):
 
         self._env = env
         self._agent_id = agent_id
-        self._policy = policy
+        self.policy = policy
         self._initial_exploration_policy = initial_exploration_policy
         self._qf1 = qf1
         self._qf2 = qf2
-        # self._vf = vf
+        self._vf = vf
         self._pool = pool
         self._plotter = plotter
-
+        self.joint_policy=False
         self._policy_lr = lr
         self._qf_lr = lr
         self._vf_lr = lr
@@ -155,13 +93,13 @@ class MASAC(RLAlgorithm, Serializable):
         self._action_prior = action_prior
 
         self._target_entropy = (
-            -np.prod(self._env.action_space.shape)
+            -np.prod(self._env.action_spaces.shape)
             if target_entropy == 'auto'
             else target_entropy)
 
         # Reparameterize parameter must match between the algorithm and the
         # policy actions are sampled from.
-        assert reparameterize == self._policy._reparameterize
+        assert reparameterize == self.policy._reparameterize
         self._reparameterize = reparameterize
 
         self._save_full_state = save_full_state
@@ -193,11 +131,10 @@ class MASAC(RLAlgorithm, Serializable):
     def train(self):
         """Initiate training of the SAC instance."""
 
-        self._train(self._env, self._policy, self._initial_exploration_policy, self._pool)
+        self._train(self._env, self.policy, self._initial_exploration_policy, self._pool)
 
     def _init_placeholders(self):
         """Create input placeholders for the SAC algorithm.
-
         Creates `tf.placeholder`s for:
             - observation
             - next observation
@@ -218,7 +155,7 @@ class MASAC(RLAlgorithm, Serializable):
             shape=[None, self._observation_dim],
             name='next_observations_agent_{}'.format(self._agent_id))
 
-        self._actions_pl = tf.placeholder(
+        self._actions_ph = tf.placeholder(
             tf.float32, shape=[None, self._action_dim],
             name='actions_agent_{}'.format(self._agent_id))
 
@@ -234,15 +171,15 @@ class MASAC(RLAlgorithm, Serializable):
             tf.float32, shape=[None, self._opponent_action_dim],
             name='opponent_next_actions_agent_{}'.format(self._agent_id))
 
-        self._rewards_pl = tf.placeholder(
+        self._rewards_ph = tf.placeholder(
             tf.float32, shape=[None],
             name='rewards_agent_{}'.format(self._agent_id))
 
-        self._terminals_pl = tf.placeholder(
+        self._terminals_ph = tf.placeholder(
             tf.float32, shape=[None],
             name='terminals_agent_{}'.format(self._agent_id))
 
-        self._annealing_pl = tf.placeholder(
+        self._annealing_ph = tf.placeholder(
             tf.float32, shape=[],
             name='annealing_agent_{}'.format(self._agent_id))
 
@@ -258,22 +195,20 @@ class MASAC(RLAlgorithm, Serializable):
 
     def _init_critic_update(self):
         """Create minimization operation for critic Q-function.
-
         Creates a `tf.optimizer.minimize` operation for updating
         critic Q-function with gradient descent, and appends it to
         `self._training_ops` attribute.
-
         See Equation (10) in [1], for further information of the
         Q-function update rule.
         """
 
-        self._qf1_t = self._qf1.get_output_for(
+        self._qf1_t = self._qf1.output_for(
             self._observations_ph, self._actions_ph, reuse=True)  # N
-        self._qf2_t = self._qf2.get_output_for(
+        self._qf2_t = self._qf2.output_for(
             self._observations_ph, self._actions_ph, reuse=True)  # N
 
         with tf.variable_scope('target'):
-            vf_next_target_t = self._vf.get_output_for(self._next_observations_ph)  # N
+            vf_next_target_t = self._vf.output_for(self._next_observations_ph)  # N
             self._vf_target_params = self._vf.get_params_internal()
 
         ys = tf.stop_gradient(
@@ -299,24 +234,21 @@ class MASAC(RLAlgorithm, Serializable):
 
     def _init_actor_update(self):
         """Create minimization operations for policy and state value functions.
-
         Creates a `tf.optimizer.minimize` operations for updating
         policy and value functions with gradient descent, and appends them to
         `self._training_ops` attribute.
-
         In principle, there is no need for a separate state value function
         approximator, since it could be evaluated using the Q-function and
         policy. However, in practice, the separate function approximator
         stabilizes training.
-
         See Equations (8, 13) in [1], for further information
         of the value function and policy function update rules.
         """
 
-        actions, log_pi = self._policy.actions_for(observations=self._observations_ph,
+        actions, log_pi = self.policy.actions_for(observations=self._observations_ph,
                                                    with_log_pis=True)
 
-        self._vf_t = self._vf.get_output_for(self._observations_ph, reuse=True)  # N
+        self._vf_t = self._vf.output_for(self._observations_ph, reuse=True)  # N
         self._vf_params = self._vf.get_params_internal()
 
         if self._action_prior == 'normal':
@@ -327,9 +259,9 @@ class MASAC(RLAlgorithm, Serializable):
         elif self._action_prior == 'uniform':
             policy_prior_log_probs = 0.0
 
-        log_target1 = self._qf1.get_output_for(
+        log_target1 = self._qf1.output_for(
             self._observations_ph, actions, reuse=True)  # N
-        log_target2 = self._qf2.get_output_for(
+        log_target2 = self._qf2.output_for(
             self._observations_ph, actions, reuse=True)  # N
         min_log_target = tf.minimum(log_target1, log_target2)
 
@@ -341,7 +273,7 @@ class MASAC(RLAlgorithm, Serializable):
 
         policy_regularization_losses = tf.get_collection(
             tf.GraphKeys.REGULARIZATION_LOSSES,
-            scope=self._policy.name)
+            scope=self.policy.name)
         policy_regularization_loss = tf.reduce_sum(
             policy_regularization_losses)
 
@@ -357,7 +289,7 @@ class MASAC(RLAlgorithm, Serializable):
 
         policy_train_op = tf.train.AdamOptimizer(self._policy_lr).minimize(
             loss=policy_loss,
-            var_list=self._policy.get_params_internal()
+            var_list=self.policy.get_params_internal()
         )
 
         vf_train_op = tf.train.AdamOptimizer(self._vf_lr).minimize(
@@ -381,7 +313,7 @@ class MASAC(RLAlgorithm, Serializable):
 
     @overrides
     def _init_training(self, env, policy, pool):
-        super(MASAC, self)._init_training(env, policy, pool)
+        #super(MASAC, self)._init_training(env, policy, pool)
         self._sess.run(self._target_ops)
 
     @overrides
@@ -414,11 +346,9 @@ class MASAC(RLAlgorithm, Serializable):
     @overrides
     def log_diagnostics(self, iteration, batch):
         """Record diagnostic information to the logger.
-
         Records mean and standard deviation of Q-function and state
         value function, and TD-loss (mean squared Bellman error)
         for the sample batch.
-
         Also calls the `draw` method of the plotter, if plotter defined.
         """
 
@@ -436,14 +366,13 @@ class MASAC(RLAlgorithm, Serializable):
         logger.record_tabular('mean-sq-bellman-error1', td_loss1)
         logger.record_tabular('mean-sq-bellman-error2', td_loss2)
 
-        self._policy.log_diagnostics(iteration, batch)
+        self.policy.log_diagnostics(iteration, batch)
         if self._plotter:
             self._plotter.draw()
 
     @overrides
     def get_snapshot(self, epoch):
         """Return loggable snapshot of the SAC algorithm.
-
         If `self._save_full_state == True`, returns snapshot of the complete
         SAC instance. If `self._save_full_state == False`, returns snapshot
         of policy, Q-function, state value function, and environment instances.
@@ -457,7 +386,7 @@ class MASAC(RLAlgorithm, Serializable):
         else:
             snapshot = {
                 'epoch': epoch,
-                'policy': self._policy,
+                'policy': self.policy,
                 'qf1': self._qf1,
                 'qf2': self._qf2,
                 'vf': self._vf,
@@ -473,7 +402,7 @@ class MASAC(RLAlgorithm, Serializable):
             'qf1-params': self._qf1.get_param_values(),
             'qf2-params': self._qf2.get_param_values(),
             'vf-params': self._vf.get_param_values(),
-            'policy-params': self._policy.get_param_values(),
+            'policy-params': self.policy.get_param_values(),
             'pool': self._pool.__getstate__(),
             'env': self._env.__getstate__(),
         })
@@ -486,6 +415,6 @@ class MASAC(RLAlgorithm, Serializable):
         self._qf1.set_param_values(d['qf1-params'])
         self._qf2.set_param_values(d['qf2-params'])
         self._vf.set_param_values(d['vf-params'])
-        self._policy.set_param_values(d['policy-params'])
+        self.policy.set_param_values(d['policy-params'])
         self._pool.__setstate__(d['pool'])
         self._env.__setstate__(d['env'])
