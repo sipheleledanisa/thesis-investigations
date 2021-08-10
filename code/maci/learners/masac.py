@@ -271,21 +271,38 @@ class MASAC(MARLAlgorithm):
             policy_kl_loss = tf.reduce_mean(log_pi * tf.stop_gradient(
                 log_pi - log_target1 + self._vf_t - policy_prior_log_probs))
 
+        grad_log_pi = tf.gradients(log_pi, self._observations_ph)[0]
+        grad_log_pi = tf.expand_dims(grad_log_pi, axis=2)
+
+        grad_vf_= tf.gradients(self._vf_t,self._observations_ph)[0]
+        grad_vf_ = tf.expand_dims(grad_vf_, axis=-1)
+        grad_vf_=tf.stop_gradient(grad_vf_)
+
+        grad_log_p = tf.gradients(min_log_target, self._observations_ph)[0]
+        grad_log_p = tf.expand_dims(grad_log_p, axis=2)
+        #grad_log_p = tf.stop_gradient(grad_log_p)
+
+        learned_stein_desc = tf.reduce_mean(((tf.transpose(tf.transpose(grad_log_pi)*tf.stop_gradient(self._vf_t))+\
+            (tf.stop_gradient(tf.linalg.trace(grad_vf_))))))
+
         policy_regularization_losses = tf.get_collection(
             tf.GraphKeys.REGULARIZATION_LOSSES,
             scope=self.policy.name)
         policy_regularization_loss = tf.reduce_sum(
             policy_regularization_losses)
 
-        policy_loss = (policy_kl_loss
+        policy_loss =(policy_kl_loss # (learned_stein_desc )#
                        + policy_regularization_loss)
 
         # We update the vf towards the min of two Q-functions in order to
         # reduce overestimation bias from function approximation error.
-        self._vf_loss_t = 0.5 * tf.reduce_mean((
-          self._vf_t
-          - tf.stop_gradient(min_log_target - log_pi + policy_prior_log_probs)
-        )**2)
+        #self._vf_loss_t = 0.5 * tf.reduce_mean((
+        #  self._vf_t
+        #  - tf.stop_gradient(min_log_target - log_pi + policy_prior_log_probs)
+        #)**2)
+        lambda_coeff=1e-2
+        self._vf_loss_t_ = tf.reduce_mean((tf.transpose(tf.transpose(tf.stop_gradient(grad_log_pi))*(self._vf_t))+\
+            (tf.linalg.trace(grad_vf_)))-tf.reduce_mean(lambda_coeff*tf.transpose(self._vf_t)*self._vf_t))
 
         policy_train_op = tf.train.AdamOptimizer(self._policy_lr).minimize(
             loss=policy_loss,
@@ -293,7 +310,7 @@ class MASAC(MARLAlgorithm):
         )
 
         vf_train_op = tf.train.AdamOptimizer(self._vf_lr).minimize(
-            loss=self._vf_loss_t,
+            loss=self._vf_loss_t_,
             var_list=self._vf_params
         )
 

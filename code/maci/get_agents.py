@@ -67,6 +67,7 @@ def masac_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
   policy = GaussianPolicy(env.env_specs,
                  hidden_layer_sizes=(M, M),
                  squash=squash, joint=joint,
+                 reparameterize= False,
                  agent_id=i)
 
   qf1 = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i,name='q_function_'+str(i))
@@ -91,7 +92,7 @@ def masac_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
     target_update_interval=10,
     discount=0.99,
     save_full_state=False,
-  reparameterize = True)
+  reparameterize = False)
   return agent
 
 
