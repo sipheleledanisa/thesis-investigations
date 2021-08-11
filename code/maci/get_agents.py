@@ -24,7 +24,7 @@ def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
                                 hidden_layer_sizes=(M, M),
                                 squash=squash, squash_func=squash_func, sampling=sampling, u_range=u_range, joint=joint,
                                 agent_id=i)
-
+    vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
     qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
     target_qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_qf', joint=joint,
                             agent_id=i)
@@ -37,6 +37,7 @@ def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
         env=env,
         pool=pool,
         qf=qf,
+        vf=vf,
         target_qf=target_qf,
         policy=policy,
         plotter=plotter,
