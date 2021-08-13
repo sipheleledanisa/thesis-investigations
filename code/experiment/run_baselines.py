@@ -15,6 +15,7 @@ from maci.core.serializable import Serializable
 import maci.misc.tf_utils as U
 import os
 
+
 from keras.backend.tensorflow_backend import set_session
 import tensorflow as tf
 config = tf.ConfigProto()
