@@ -253,27 +253,27 @@ class MASQL(MARLAlgorithm):
         log_p = svgd_target_values + squash_correction
 
         grad_log_p = tf.gradients(log_p, fixed_actions)[0]
-        grad_log_p = tf.expand_dims(grad_log_p, axis=2)
+        #grad_log_p = tf.expand_dims(grad_log_p, axis=2)
         grad_log_p = tf.stop_gradient(grad_log_p)
-        assert_shape(grad_log_p, [None, n_fixed_actions, 1, self._action_dim + self._opponent_action_dim])
+        #assert_shape(grad_log_p, [None, n_fixed_actions, 1, self._action_dim + self._opponent_action_dim])
 
         a=tf.expand_dims(svgd_target_values,-1)
 
-        q_values = self.qf.output_for(
-            self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
+        #q_values = self.qf.output_for(
+        #    self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
 
-        b=tf.expand_dims(q_values,1)
+        #b=tf.expand_dims(q_values,1)
 
-        critic_ = (a+b)/2
+        #critic_ = a
 
-        expanded_critic = tf.expand_dims(critic_,-1) #(tf.expand_dims(svgd_target_values,-1)
+        expanded_critic = tf.expand_dims(svgd_target_values,-1) #(tf.expand_dims(svgd_target_values,-1)
 
-        critic_grads = tf.stop_gradient(tf.expand_dims(tf.gradients(expanded_critic,fixed_actions)[0],axis=2))
+        critic_grads = (tf.gradients(expanded_critic,fixed_actions)[0])
 
-        lsd_dummy = (tf.stop_gradient(expanded_critic)*grad_log_p+ critic_grads)
+        lsd_dummy = ((expanded_critic)*grad_log_p+ critic_grads)
 
 
-        action_gradients = tf.gradients(lsd_dummy,fixed_actions)#tf.reduce_mean(lsd_dummy, reduction_indices=2)
+        action_gradients = lsd_dummy
 
         # Propagate the gradient through the policy network (Equation 14).
         gradients = tf.gradients(
@@ -289,7 +289,7 @@ class MASQL(MARLAlgorithm):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
                 svgd_training_op = optimizer.minimize(
-                    loss=-surrogate_loss,
+                    loss=surrogate_loss,
                     var_list=self.policy.get_params_internal())
                 self._training_ops.append(svgd_training_op)
 
