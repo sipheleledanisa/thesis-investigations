@@ -160,27 +160,38 @@ class MASQL(MARLAlgorithm):
             # opponent_target_actions = tf.random_uniform(
             #     (1, self._value_n_particles, self._opponent_action_dim), *self._env.action_range)
 
-            target_actions = self.target_policy.actions_for(
-            observations=self._observations_ph,
-            reuse=False)
+            if self.opponent_action_range is None:
+                target_actions = tf.random_uniform(
+                    (1, self._value_n_particles, self._action_dim), *self._env.action_range)
+                opponent_target_actions = tf.random_uniform(
+                    (1, self._value_n_particles, self._opponent_action_dim), *(-1., 1.))
+            else:
+                target_actions = tf.random_uniform(
+                    (1, self._value_n_particles, self._action_dim), *(-1., 1.))
+                opponent_target_actions = tf.random_uniform(
+                    (1, self._value_n_particles, self._opponent_action_dim), *(-1., 1.))
+                if self.opponent_action_range_normalize:
+                    target_actions = tf.nn.softmax(target_actions, axis=-1)
+                    opponent_target_actions = tf.nn.softmax(opponent_target_actions, axis=-1)
+
+            target_actions = tf.concat([target_actions, opponent_target_actions], axis=2)
 
             q_value_targets = self.target_qf.output_for(
                 observations=self._next_observations_ph[:, None, :],
                 actions=target_actions)
 
-        joint_action = self.policy.actions_for(
-            observations=self._observations_ph,
-           
-            reuse=True)
+            assert_shape(q_value_targets, [None, self._value_n_particles])
+
+        joint_action = tf.concat([self._actions_pl, self._opponent_actions_pl], axis=1)
         self._q_values = self.qf.output_for(
             self._observations_ph, joint_action, reuse=True)
-    
+        assert_shape(self._q_values, [None])
 
         # Equation 10:
 
         next_value = self._annealing_pl * tf.reduce_logsumexp(q_value_targets / self._annealing_pl, axis=1)
         # next_value = tf.reduce_logsumexp(q_value_targets, axis=1)
-       
+        assert_shape(next_value, [None])
 
 
         # Importance weights add just a constant to the value.
@@ -192,48 +203,17 @@ class MASQL(MARLAlgorithm):
             1 - self._terminals_pl) * self._discount * next_value)
         assert_shape(ys, [None])
 
-        # Target log-density. Q_soft in Equation 13:
-        squash_correction = tf.reduce_sum(
-            tf.log(1 - target_actions**2 + EPS), axis=-1)
-        log_p = q_value_targets + squash_correction
-
-        grad_log_p = tf.gradients(log_p, target_actions)[0]
-        grad_log_p = tf.expand_dims(grad_log_p, axis=2)
-        grad_log_p = tf.stop_gradient(grad_log_p)
-
-        expanded_critic =  tf.expand_dims(tf.expand_dims(self._q_values,-1),-1)
-
-        critic_grads = (tf.expand_dims(tf.gradients(self._q_values,joint_action)[0],axis=2))
-
-        lsd_dummy = tf.reduce_mean(expanded_critic*grad_log_p+ critic_grads-\
-            (1e-2)*tf.transpose(expanded_critic)*expanded_critic)
-        # Stein Variational Gradient in Equation 13:
-
-        #  in Equation 13:
-        action_gradients = tf.gradients(lsd_dummy,joint_action)[0] 
-        action_gradients = tf.reduce_sum(action_gradients,1)
-
-        # Propagate the gradient through the policy network (Equation 14).
-        gradients = tf.gradients(
-            ys,
-            self.qf.get_params_internal(),
-            grad_ys=action_gradients)
-
-        surrogate_loss = tf.reduce_sum([
-            tf.reduce_sum(w * tf.stop_gradient(g))
-            for w, g in zip(self.qf.get_params_internal(), gradients)
-        ])
         # Equation 11:
         bellman_residual = 0.5 * tf.reduce_mean((ys - self._q_values)**2)
         with tf.variable_scope('target_agent_{}'.format(self.agent_id), reuse=tf.AUTO_REUSE):
             if self._train_qf:
 
                 td_train_op = tf.train.AdamOptimizer(self._qf_lr).minimize(
-                    loss=-surrogate_loss, var_list=self.qf.get_params_internal())
+                    loss=bellman_residual, var_list=self.qf.get_params_internal())
                 self._training_ops.append(td_train_op)
 
-        self._bellman_residual = bellman_residual
-        
+        self._bellman_residual = bellman_residual   
+
     
     def _create_svgd_update(self):
         """Create a minimization operation for policy update (SVGD)."""
@@ -266,6 +246,7 @@ class MASQL(MARLAlgorithm):
         svgd_target_values = self.qf.output_for(
             self._observations_ph[:, None, :], fixed_actions, reuse=True) / self._annealing_pl
 
+
         # Target log-density. Q_soft in Equation 13:
         squash_correction = tf.reduce_sum(
             tf.log(1 - fixed_actions**2 + EPS), axis=-1)
@@ -273,29 +254,26 @@ class MASQL(MARLAlgorithm):
 
         grad_log_p = tf.gradients(log_p, fixed_actions)[0]
         grad_log_p = tf.expand_dims(grad_log_p, axis=2)
-        grad_log_p_ = grad_log_p
         grad_log_p = tf.stop_gradient(grad_log_p)
         assert_shape(grad_log_p, [None, n_fixed_actions, 1, self._action_dim + self._opponent_action_dim])
 
-        kernel_dict = self._kernel_fn(xs=fixed_actions, ys=updated_actions)
+        a=tf.expand_dims(svgd_target_values,-1)
 
-        # Kernel function in Equation 13:
-        kappa = tf.expand_dims(kernel_dict["output"], dim=3)
-        assert_shape(kappa, [None, n_fixed_actions, n_updated_actions, 1])
+        q_values = self.qf.output_for(
+            self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
 
-        expanded_critic =  tf.expand_dims(tf.expand_dims(svgd_target_values,-1),-1)
+        b=tf.expand_dims(q_values,1)
 
-        critic_grads = tf.stop_gradient(tf.expand_dims(tf.gradients(svgd_target_values,fixed_actions)[0],axis=2))
+        critic_ = (a+b)/2
 
-        lsd_dummy = expanded_critic*grad_log_p_+ critic_grads
-        # Stein Variational Gradient in Equation 13:
-        action_gradients_ = tf.reduce_mean(
-            kappa * grad_log_p + kernel_dict["gradient"], reduction_indices=1)
-        #assert_shape(action_gradients,
-        #             [None, n_updated_actions, self._action_dim + self._opponent_action_dim])
+        expanded_critic = tf.expand_dims(critic_,-1) #(tf.expand_dims(svgd_target_values,-1)
 
-        action_gradients = tf.reduce_mean(
-            lsd_dummy, reduction_indices=2)
+        critic_grads = tf.stop_gradient(tf.expand_dims(tf.gradients(expanded_critic,fixed_actions)[0],axis=2))
+
+        lsd_dummy = (tf.stop_gradient(expanded_critic)*grad_log_p+ critic_grads)
+
+
+        action_gradients = tf.gradients(lsd_dummy,fixed_actions)#tf.reduce_mean(lsd_dummy, reduction_indices=2)
 
         # Propagate the gradient through the policy network (Equation 14).
         gradients = tf.gradients(
@@ -311,7 +289,7 @@ class MASQL(MARLAlgorithm):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
                 svgd_training_op = optimizer.minimize(
-                    loss=surrogate_loss,
+                    loss=-surrogate_loss,
                     var_list=self.policy.get_params_internal())
                 self._training_ops.append(svgd_training_op)
 
