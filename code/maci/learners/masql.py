@@ -270,7 +270,9 @@ class MASQL(MARLAlgorithm):
 
         critic_grads = (tf.gradients(expanded_critic,fixed_actions)[0])
 
-        lsd_dummy = ((expanded_critic)*grad_log_p+ critic_grads)
+        noise =  tf.random_normal((1, self._value_n_particles, self._action_dim))
+
+        lsd_dummy = ((expanded_critic)*grad_log_p+ noise*critic_grads*noise)
 
 
         action_gradients = lsd_dummy
