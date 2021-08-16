@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 
-from maci.learners import MAVBAC, MASQL, ROMMEO
+from maci.learners import MAVBAC, MASQL, ROMMEO, MASAC
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame, DifferentialGame
 #from maci.environments import make_particle_env
@@ -9,10 +9,12 @@ from maci.misc import logger
 import gtimer as gt
 import datetime
 from copy import deepcopy
-from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent, rom_agent
+from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent, rom_agent, masac_agent
+from maci.core.serializable import Serializable
 
 import maci.misc.tf_utils as U
 import os
+
 
 from keras.backend.tensorflow_backend import set_session
 import tensorflow as tf
@@ -39,7 +41,7 @@ def get_particle_game(particle_game_name, arglist):
 def parse_args():
     parser = argparse.ArgumentParser("Reinforcement Learning experiments for multiagent environments")
     # Environment
-    # ['particle-simple_spread', 'particle-simple_adversary', 'particle-simple_tag', 'particle-simple_push']
+    # ['particle-simple_spread', 'particle-simple_adversary', 'particle-simple_tag', 'particle-simple_push'] #diff-ma_softq"
     parser.add_argument('-g', "--game_name", type=str, default="diff-ma_softq", help="name of the game")
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
@@ -48,7 +50,7 @@ def parse_args():
     parser.add_argument('-ms', "--max_steps", type=int, default=35000, help="reward type")
     parser.add_argument('-me', "--memory", type=int, default=0, help="reward type")
     parser.add_argument('-n', "--n", type=int, default=2, help="name of the game")
-    parser.add_argument('-bs', "--batch_size", type=int, default=512, help="name of the game")
+    parser.add_argument('-bs', "--batch_size", type=int, default=512//4, help="name of the game")
     parser.add_argument('-hm', "--hidden_size", type=int, default=100, help="name of the game")
     parser.add_argument('-ti', "--training_interval", type=int, default=1, help="name of the game")
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
@@ -139,6 +141,9 @@ def main(arglist):
                 agent = masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             elif model_name == 'ROMMEO':
                 agent = rom_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
+
+            elif model_name == "MASAC":
+                agent = masac_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
             else:
                 if model_name == 'DDPG':
                     joint = False
@@ -156,7 +161,10 @@ def main(arglist):
         sampler.initialize(env, agents)
 
         for agent in agents:
-            agent._init_training()
+            if isinstance(agent, MASAC):
+                agent._init_training(env,agent._policy,agent._pool)
+            else:
+                agent._init_training()
         gt.rename_root('MARLAlgorithm')
         gt.reset()
         gt.set_def_unique(False)
@@ -246,8 +254,14 @@ def main(arglist):
                         batch['all_next_observations'] = deepcopy(all_next_obs)
                     opponent_current_actions_n = []
                     for agent, batch in zip(agents, batch_n):
-                        target_next_actions_n.append(agent.target_policy.get_actions(batch['next_observations']))
-                        opponent_current_actions_n.append(agent.policy.get_actions(batch['observations']))
+                        if not isinstance(agent, MASAC):
+                            target_next_actions_n.append(agent.target_policy.get_actions(batch['next_observations']))
+                            opponent_current_actions_n.append(agent.policy.get_actions(batch['observations']))
+                        else:
+                            target_next_actions_n.append(agent.policy.get_actions(batch['next_observations']))
+                            opponent_current_actions_n.append(agent.policy.get_actions(batch['observations']))
+
+                        
 
                     for i, agent in enumerate(agents):
                         batch_n[i]['opponent_current_actions'] = np.reshape(
@@ -285,13 +299,16 @@ def main(arglist):
                         except:
                             pass
                         batch_n[i]['opponent_actions'] = np.reshape(np.delete(deepcopy(opponent_actions_n), i, 0), (-1, agent._opponent_action_dim))
-                        if agent.joint:
-                            if agent.opponent_modelling:
-                                batch_n[i]['recent_opponent_observations'] = recent_opponent_observations_n[i]
-                                batch_n[i]['recent_opponent_actions'] = np.reshape(np.delete(deepcopy(recent_opponent_actions_n), i, 0), (-1, agent._opponent_action_dim))
-                                batch_n[i]['opponent_next_actions'] = agent.opponent_policy.get_actions(batch_n[i]['next_observations'])
-                            else:
-                                batch_n[i]['opponent_next_actions'] = np.reshape(np.delete(deepcopy(target_next_actions_n), i, 0), (-1, agent._opponent_action_dim))
+                        try:
+                            if agent.joint:
+                                if agent.opponent_modelling:
+                                    batch_n[i]['recent_opponent_observations'] = recent_opponent_observations_n[i]
+                                    batch_n[i]['recent_opponent_actions'] = np.reshape(np.delete(deepcopy(recent_opponent_actions_n), i, 0), (-1, agent._opponent_action_dim))
+                                    batch_n[i]['opponent_next_actions'] = agent.opponent_policy.get_actions(batch_n[i]['next_observations'])
+                                else:
+                                    batch_n[i]['opponent_next_actions'] = np.reshape(np.delete(deepcopy(target_next_actions_n), i, 0), (-1, agent._opponent_action_dim))
+                        except:
+                                pass
 
                         if isinstance(agent, MAVBAC) or isinstance(agent, MASQL) or isinstance(agent, ROMMEO):
                             agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i], annealing=alpha)

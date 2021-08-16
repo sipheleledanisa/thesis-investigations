@@ -1,9 +1,9 @@
 import numpy as np
 import tensorflow as tf
-from maci.learners import MADDPG, MAVBAC, MASQL, ROMMEO
+from maci.learners import MADDPG, MAVBAC, MASQL, ROMMEO, MASAC
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
 from maci.replay_buffers import SimpleReplayBuffer
-from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction
+from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction, NNVFunction
 from maci.policies import StochasticNNConditionalPolicy, StochasticNNPolicy
 from maci.policies.deterministic_policy import DeterministicNNPolicy, ConditionalDeterministicNNPolicy
 from maci.policies.uniform_policy import UniformPolicy
@@ -24,7 +24,7 @@ def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
                                 hidden_layer_sizes=(M, M),
                                 squash=squash, squash_func=squash_func, sampling=sampling, u_range=u_range, joint=joint,
                                 agent_id=i)
-
+    vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
     qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
     target_qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_qf', joint=joint,
                             agent_id=i)
@@ -37,21 +37,64 @@ def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
         env=env,
         pool=pool,
         qf=qf,
+        vf=vf,
         target_qf=target_qf,
         policy=policy,
         plotter=plotter,
-        policy_lr=3e-5,
+        policy_lr=3e-6,
         qf_lr=3e-5,
         tau=0.01,
         value_n_particles=1,
         td_target_update_interval=10,
         kernel_fn=adaptive_isotropic_gaussian_kernel,
-        kernel_n_particles=8,
+        kernel_n_particles=32,
         kernel_update_ratio=0.5,
         discount=0.99,
         reward_scale=1,
         save_full_state=False)
     return agent
+
+def masac_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
+  joint = False
+  squash = True
+  squash_func = tf.tanh
+  sampling = False
+  if 'particle' in game_name:
+    sampling = True
+    squash_func = tf.nn.softmax
+
+  pool = SimpleReplayBuffer(env.env_specs, max_replay_buffer_size=1e6, joint=joint, agent_id=i)
+
+  policy = GaussianPolicy(env.env_specs,
+                 hidden_layer_sizes=(M, M),
+                 squash=squash, joint=joint,
+                 reparameterize= False,
+                 agent_id=i)
+
+  qf1 = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i,name='q_function_'+str(i))
+  qf2 = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i,name='q_function_2_'+str(i))
+
+  vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
+  plotter = None
+
+  agent = MASAC(
+    base_kwargs=base_kwargs,
+    agent_id=i,
+    env=env,
+    initial_exploration_policy=None,
+    pool=pool,
+    qf1=qf1,
+    qf2=qf2,
+    vf=vf,
+    policy=policy,
+    plotter=plotter,
+    lr=3e-4,
+    tau=0.01,
+    target_update_interval=10,
+    discount=0.99,
+    save_full_state=False,
+  reparameterize = False)
+  return agent
 
 
 def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy, game_name='matrix'):
