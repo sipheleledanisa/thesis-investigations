@@ -4,7 +4,7 @@ import argparse
 from maci.learners import MAVBAC, MASQL, ROMMEO
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame, DifferentialGame
-from maci.environments import make_particle_env
+#from maci.environments import make_particle_env
 from maci.misc import logger
 import gtimer as gt
 import datetime
