@@ -215,8 +215,8 @@ class ROMMEO(MARLAlgorithm):
 
         prior = self._get_opponent_prior(self._observations_ph)
         raw_actions = tf.atanh(opponent_actions)
-        prior_log_pis = prior.dist.log_prob(raw_actions)
-        prior_log_pis = prior_log_pis - squash_correction(raw_actions)
+        #prior_log_pis = prior.dist.log_prob(raw_actions)
+        #prior_log_pis = prior_log_pis - squash_correction(raw_actions)
 
         actions, agent_log_pis = self.policy.actions_for(observations=self._observations_ph,
                                                          reuse=tf.AUTO_REUSE,
@@ -227,8 +227,9 @@ class ROMMEO(MARLAlgorithm):
             self._observations_ph, actions, opponent_actions, reuse=True)
 
 
-        opponent_p_loss = tf.reduce_mean(opponent_actions_log_pis) - tf.reduce_mean(prior_log_pis) - tf.reduce_mean(q_values) + self._annealing_pl * agent_log_pis
-        opponent_p_loss = opponent_p_loss + reg_loss
+        opponent_p_loss =tf.reduce_mean(opponent_actions_log_pis)- tf.reduce_mean(q_values) + self._annealing_pl *( agent_log_pis ) #consider removing annealing
+        #- tf.reduce_mean(prior_log_pis)
+        opponent_p_loss = opponent_p_loss #+ reg_loss
         with tf.variable_scope('opponent_policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
@@ -246,8 +247,8 @@ class ROMMEO(MARLAlgorithm):
 
         prior = self._get_opponent_prior(self._next_observations_ph)
         raw_actions = tf.atanh(opponent_actions)
-        prior_log_pis = prior.dist.log_prob(raw_actions)
-        prior_log_pis = prior_log_pis - squash_correction(raw_actions)
+        #prior_log_pis = prior.dist.log_prob(raw_actions)
+        #prior_log_pis = prior_log_pis - squash_correction(raw_actions)
 
         actions, actions_log_pis = self.policy.actions_for(observations=self._next_observations_ph,
                                                            reuse=tf.AUTO_REUSE,
@@ -259,7 +260,7 @@ class ROMMEO(MARLAlgorithm):
                 observations=self._next_observations_ph,
                 actions=actions,
                 opponent_actions=opponent_actions)
-            q_value_targets = q_value_targets - self._annealing_pl * actions_log_pis - opponent_actions_log_pis + prior_log_pis
+            q_value_targets = q_value_targets - self._annealing_pl * (actions_log_pis-opponent_actions_log_pis) #- opponent_actions_log_pis + prior_log_pis
             assert_shape(q_value_targets, [None])
 
         self._q_values = self.joint_qf.output_for(
@@ -297,8 +298,9 @@ class ROMMEO(MARLAlgorithm):
             self._observations_ph, actions, opponent_actions, reuse=True)
         assert_shape(q_values, [None])
 
-        pg_loss = self._annealing_pl * tf.reduce_mean(actions_log_pis) - tf.reduce_mean(q_values)
-        pg_loss = pg_loss + reg_loss
+        pg_loss = self._annealing_pl * tf.reduce_mean(actions_log_pis) +tf.reduce_mean(opponent_actions_log_pis)- tf.reduce_mean(q_values) #are we doing the right thing with the entropy here?
+        #+tf.reduce_mean(opponent_actions_log_pis)
+        pg_loss = pg_loss #+ reg_loss
 
         with tf.variable_scope('policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
