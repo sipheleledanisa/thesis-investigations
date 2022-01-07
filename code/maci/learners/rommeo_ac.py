@@ -107,7 +107,7 @@ class ROMMEO(MARLAlgorithm):
         self._training_ops = []
         self._target_ops = []
 
-        self._create_opponent_prior_update()
+        #self._create_opponent_prior_update()
         self._create_opponent_p_update()
         self._create_q_update()
         self._create_p_update()
@@ -227,7 +227,7 @@ class ROMMEO(MARLAlgorithm):
             self._observations_ph, actions, opponent_actions, reuse=True)
 
 
-        opponent_p_loss =tf.reduce_mean(opponent_actions_log_pis)- tf.reduce_mean(q_values) + self._annealing_pl *( agent_log_pis ) #consider removing annealing
+        opponent_p_loss =self._annealing_pl*tf.reduce_mean(opponent_actions_log_pis)- tf.reduce_mean(q_values) - self._annealing_pl *( agent_log_pis ) #consider removing annealing
         #- tf.reduce_mean(prior_log_pis)
         opponent_p_loss = opponent_p_loss #+ reg_loss
         with tf.variable_scope('opponent_policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
@@ -245,7 +245,7 @@ class ROMMEO(MARLAlgorithm):
             reuse=tf.AUTO_REUSE, with_log_pis=True)
         assert_shape(opponent_actions, [None, self._opponent_action_dim])
 
-        prior = self._get_opponent_prior(self._next_observations_ph)
+        #prior = self._get_opponent_prior(self._next_observations_ph)
         raw_actions = tf.atanh(opponent_actions)
         #prior_log_pis = prior.dist.log_prob(raw_actions)
         #prior_log_pis = prior_log_pis - squash_correction(raw_actions)
@@ -298,7 +298,7 @@ class ROMMEO(MARLAlgorithm):
             self._observations_ph, actions, opponent_actions, reuse=True)
         assert_shape(q_values, [None])
 
-        pg_loss = self._annealing_pl * tf.reduce_mean(actions_log_pis) +tf.reduce_mean(opponent_actions_log_pis)- tf.reduce_mean(q_values) #are we doing the right thing with the entropy here?
+        pg_loss = self._annealing_pl *( tf.reduce_mean(actions_log_pis)- tf.reduce_mean(opponent_actions_log_pis))- tf.reduce_mean(q_values) #are we doing the right thing with the entropy here?
         #+tf.reduce_mean(opponent_actions_log_pis)
         pg_loss = pg_loss #+ reg_loss
 
