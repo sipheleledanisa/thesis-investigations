@@ -24,7 +24,7 @@ def assert_shape(tensor, expected_shape):
     assert all([a == b for a, b in zip(tensor_shape, expected_shape)])
 
 
-class ROMMEO(MARLAlgorithm):
+class MI(MARLAlgorithm):
     def __init__(
             self,
             base_kwargs,
@@ -60,7 +60,7 @@ class ROMMEO(MARLAlgorithm):
             M=100,
             alpha=0.5
     ):
-        super(ROMMEO, self).__init__(**base_kwargs)
+        super(MI, self).__init__(**base_kwargs)
 
         self._env = env
         self._pool = pool
@@ -107,7 +107,6 @@ class ROMMEO(MARLAlgorithm):
         self._training_ops = []
         self._target_ops = []
 
-        self._create_opponent_prior_update()
         self._create_opponent_p_update()
         self._create_q_update()
         self._create_p_update()
@@ -180,43 +179,14 @@ class ROMMEO(MARLAlgorithm):
                 name='recent_opponent_actions_agent_{}'.format(self._agent_id))
         # self._noise_pl = noise_pl
 
-    def _get_opponent_prior(self, ph):
-        self._opponent_prior_scope = 'opponent_prior_agent_{}'.format(self._agent_id)
-        with tf.variable_scope(self._opponent_prior_scope, reuse=tf.AUTO_REUSE):
-            prior = self._opponent_prior = Normal(
-                hidden_layers_sizes=self._hidden_layers,
-                Dx=self._opponent_action_dim,
-                reparameterize=False,
-                cond_t_lst=(ph,),
-                reg=True
-            )
-        return prior
 
-    def _create_opponent_prior_update(self):
-        prior = self._get_opponent_prior(self._recent_opponent_observations_ph)
-        raw_actions = tf.atanh(self._recent_opponent_actions_pl)
-        log_pis = prior.dist.log_prob(raw_actions)
-        log_pis = log_pis - squash_correction(raw_actions)
-        loss = -tf.reduce_mean(log_pis) + prior.reg_loss_t
-        vars = U.scope_vars(self._opponent_prior_scope)
-        with tf.variable_scope('opponent_prior_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
-            if self._train_policy:
-                optimizer = tf.train.AdamOptimizer(self._policy_lr)
-                prior_training_op = optimizer.minimize(
-                        loss=loss,
-                        var_list=vars)
-                self._training_ops.append(prior_training_op)
 
     def _create_opponent_p_update(self):
-        opponent_actions, opponent_actions_log_pis, reg_loss = self.opponent_policy.actions_for(
+        opponent_actions, opponent_actions_log_pis, _ = self.opponent_policy.actions_for(
             observations=self._observations_ph,
             reuse=tf.AUTO_REUSE, with_log_pis=True, return_reg=True)
         assert_shape(opponent_actions, [None, self._opponent_action_dim])
 
-        prior = self._get_opponent_prior(self._observations_ph)
-        raw_actions = tf.atanh(opponent_actions)
-        prior_log_pis = prior.dist.log_prob(raw_actions)
-        prior_log_pis = prior_log_pis - squash_correction(raw_actions)
 
         actions, agent_log_pis = self.policy.actions_for(observations=self._observations_ph,
                                                          reuse=tf.AUTO_REUSE,
@@ -227,8 +197,9 @@ class ROMMEO(MARLAlgorithm):
             self._observations_ph, actions, opponent_actions, reuse=True)
 
 
-        opponent_p_loss = tf.reduce_mean(opponent_actions_log_pis) - tf.reduce_mean(prior_log_pis) - tf.reduce_mean(q_values) + self._annealing_pl * agent_log_pis
-        opponent_p_loss = opponent_p_loss + reg_loss
+        opponent_p_loss =self._annealing_pl*tf.reduce_mean(opponent_actions_log_pis)- tf.reduce_mean(q_values) - self._annealing_pl *( agent_log_pis ) #consider removing annealing
+
+        opponent_p_loss = opponent_p_loss 
         with tf.variable_scope('opponent_policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
@@ -243,12 +214,6 @@ class ROMMEO(MARLAlgorithm):
             observations=self._next_observations_ph,
             reuse=tf.AUTO_REUSE, with_log_pis=True)
         assert_shape(opponent_actions, [None, self._opponent_action_dim])
-
-        prior = self._get_opponent_prior(self._next_observations_ph)
-        raw_actions = tf.atanh(opponent_actions)
-        prior_log_pis = prior.dist.log_prob(raw_actions)
-        prior_log_pis = prior_log_pis - squash_correction(raw_actions)
-
         actions, actions_log_pis = self.policy.actions_for(observations=self._next_observations_ph,
                                                            reuse=tf.AUTO_REUSE,
                                                            with_log_pis=True,
@@ -259,7 +224,7 @@ class ROMMEO(MARLAlgorithm):
                 observations=self._next_observations_ph,
                 actions=actions,
                 opponent_actions=opponent_actions)
-            q_value_targets = q_value_targets - self._annealing_pl * actions_log_pis - opponent_actions_log_pis + prior_log_pis
+            q_value_targets = q_value_targets - self._annealing_pl * (actions_log_pis-opponent_actions_log_pis)
             assert_shape(q_value_targets, [None])
 
         self._q_values = self.joint_qf.output_for(
@@ -288,7 +253,7 @@ class ROMMEO(MARLAlgorithm):
 
         assert_shape(opponent_actions, [None, self._opponent_action_dim])
 
-        actions, actions_log_pis, reg_loss = self.policy.actions_for(observations=self._observations_ph,
+        actions, actions_log_pis, _ = self.policy.actions_for(observations=self._observations_ph,
                                                            reuse=tf.AUTO_REUSE,
                                                            with_log_pis=True,
                                                            opponent_actions=opponent_actions, return_reg=True)
@@ -297,8 +262,8 @@ class ROMMEO(MARLAlgorithm):
             self._observations_ph, actions, opponent_actions, reuse=True)
         assert_shape(q_values, [None])
 
-        pg_loss = self._annealing_pl * tf.reduce_mean(actions_log_pis) - tf.reduce_mean(q_values)
-        pg_loss = pg_loss + reg_loss
+        pg_loss = self._annealing_pl *( tf.reduce_mean(actions_log_pis)- tf.reduce_mean(opponent_actions_log_pis))- tf.reduce_mean(q_values) 
+        pg_loss = pg_loss
 
         with tf.variable_scope('policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
