@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from maci.learners import MADDPG, MAVBAC, MASQL, ROMMEO, MASAC
+from maci.learners import MADDPG, MAVBAC, MASQL, ROMMEO, MASAC, MI
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
 from maci.replay_buffers import SimpleReplayBuffer
 from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction, NNVFunction
@@ -341,6 +341,79 @@ def rom_agent(model_name, i, env, M, u_range, base_kwargs, g=False, mu=1.5, game
     plotter = None
 
     agent = ROMMEO(
+        base_kwargs=base_kwargs,
+        agent_id=i,
+        env=env,
+        pool=pool,
+        joint_qf=joint_qf,
+        target_joint_qf=target_joint_qf,
+        policy=conditional_policy,
+        opponent_policy=opponent_policy,
+        target_policy=target_conditional_policy,
+        plotter=plotter,
+        policy_lr=1e-2,
+        qf_lr=1e-2,
+        joint=True,
+        value_n_particles=16,
+        kernel_fn=adaptive_isotropic_gaussian_kernel,
+        kernel_n_particles=32,
+        kernel_update_ratio=0.5,
+        td_target_update_interval=1,
+        discount=0.95,
+        reward_scale=1,
+        tau=0.01,
+        save_full_state=False,
+        opponent_modelling=True)
+    return agent
+
+def mi_agent(model_name, i, env, M, u_range, base_kwargs, g=False, mu=1.5, game_name='matrix'):
+    print(model_name)
+    joint = False
+    squash = True
+    opponent_modelling = True
+    squash_func = tf.tanh
+    correct_tanh = True
+    sampling = False
+    # TODO deal with particle problem.
+    if 'particle' in game_name:
+        sampling = True
+        squash = True
+        squash_func = tf.nn.softmax
+        correct_tanh = False
+
+    pool = SimpleReplayBuffer(env.env_specs, max_replay_buffer_size=1e6, joint=joint, agent_id=i)
+
+    opponent_policy = GaussianPolicy(env.env_specs,
+                                      hidden_layer_sizes=(M, M),
+                                      squash=True, joint=False,
+                                      agent_id=i, name='opponent_policy')
+    conditional_policy = GaussianConditionalPolicy(env.env_specs,
+                                                   cond_policy=opponent_policy,
+                                                   hidden_layer_sizes=(M, M),
+                                                   name='gaussian_conditional_policy',
+                                                   opponent_policy=False,
+                                                   squash=True, joint=False,
+                                                   agent_id=i)
+    with tf.variable_scope('target_levelk_{}'.format(i), reuse=True):
+        target_opponent_policy = GaussianPolicy(env.env_specs,
+                                         hidden_layer_sizes=(M, M),
+                                         squash=True, joint=False,
+                                         agent_id=i, name='target_opponent_policy')
+        target_conditional_policy = GaussianConditionalPolicy(env.env_specs,
+                                                       cond_policy=target_opponent_policy,
+                                                       hidden_layer_sizes=(M, M),
+                                                       name='target_gaussian_conditional_policy',
+                                                       opponent_policy=False,
+                                                       squash=True, joint=False,
+                                                       agent_id=i)
+
+
+    joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
+    target_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_joint_qf', agent_id=i)
+
+    plotter = None
+
+    agent = MI(
         base_kwargs=base_kwargs,
         agent_id=i,
         env=env,

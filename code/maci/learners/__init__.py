@@ -3,5 +3,6 @@
 from .masql import MASQL
 from .maddpg import MADDPG
 from .mavb_ac import MAVBAC
-from .rommeo_ac import ROMMEO
+from .mi_ac import MI
 from .masac import MASAC
+from .rommeo_ac import ROMMEO
