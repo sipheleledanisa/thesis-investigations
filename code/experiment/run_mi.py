@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 
-from maci.learners import MAVBAC, MASQL, ROMMEO
+from maci.learners import MAVBAC, MASQL, ROMMEO, MI
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame, DifferentialGame
 #from maci.environments import make_particle_env
@@ -9,7 +9,7 @@ from maci.misc import logger
 import gtimer as gt
 import datetime
 from copy import deepcopy
-from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent, rom_agent
+from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent, rom_agent, mi_agent
 
 import maci.misc.tf_utils as U
 import os
@@ -54,7 +54,7 @@ def parse_args():
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
     parser.add_argument('-a', "--aux", type=bool, default=True, help="name of the game")
     parser.add_argument('-gr', "--global_reward", type=bool, default=False, help="name of the game")
-    parser.add_argument('-m', "--model_names_setting", type=str, default='ROMMEO_ROMMEO', help="models setting agent vs adv")
+    parser.add_argument('-m', "--model_names_setting", type=str, default='MI_MI', help="models setting agent vs adv")
     return parser.parse_args()
 
 
@@ -139,6 +139,8 @@ def main(arglist):
                 agent = masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             elif model_name == 'ROMMEO':
                 agent = rom_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
+            elif model_name == 'MI':
+                agent = mi_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
                 if model_name == 'DDPG':
                     joint = False
@@ -303,7 +305,7 @@ def main(arglist):
                                 batch_n[i]['opponent_next_actions'] = agent.opponent_policy.get_actions(batch_n[i]['next_observations'])
                             else:
                                 batch_n[i]['opponent_next_actions'] = np.reshape(np.delete(deepcopy(target_next_actions_n), i, 0), (-1, agent._opponent_action_dim))
-                        if isinstance(agent, MAVBAC) or isinstance(agent, MASQL) or isinstance(agent, ROMMEO):
+                        if isinstance(agent, MAVBAC) or isinstance(agent, MASQL) or isinstance(agent, ROMMEO) or isinstance(agent, MI):
                             agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i], annealing=alpha)
                         else:
                             agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i])
