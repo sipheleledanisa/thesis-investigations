@@ -98,7 +98,7 @@ class MASQL(MARLAlgorithm):
         self._target_ops = []
 
         self._create_td_update()
-        self._create_svgd_update() #or self._create_ksd_update()
+        self._create_svgd_update() 
         self._create_target_ops()
 
         if use_saved_qf:
