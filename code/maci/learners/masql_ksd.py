@@ -250,12 +250,12 @@ class MASQL(MARLAlgorithm):
         grad_log_p = tf.stop_gradient(grad_log_p)
         assert_shape(grad_log_p, [None, n_fixed_actions, 1, self._action_dim + self._opponent_action_dim])
 
-        #second samples (the primed variables, say)
+        # Second samples (the primed variables in Hu et al.)
 
         svgd_target_values_ua = self.qf.output_for(
         self._observations_ph[:, None, :], updated_actions, reuse=True) / self._annealing_pl
 
-        # Target log-density. Q_soft in Equation 13:
+        # Target log-density. Q_soft in Equation 13 (for these variables):
         squash_correction_ua = tf.reduce_sum(
             tf.log(1 - updated_actions**2 + EPS), axis=-1)
         log_p_ua = svgd_target_values_ua + squash_correction_ua
@@ -271,11 +271,11 @@ class MASQL(MARLAlgorithm):
         kappa = tf.expand_dims(kernel_dict["output"], dim=3)
         assert_shape(kappa, [None, n_fixed_actions, n_updated_actions, 1])
         noise =  tf.random_normal((1, n_fixed_actions, self._action_dim))
-        # KSD:
+
+
+        # KSD :
         ksd = grad_log_p*kappa*(grad_log_p_ua)+grad_log_p*kernel_dict["gradient"]+\
             kernel_dict["gradient"]*grad_log_p_ua + kernel_dict["tr_kappa_grad_grad"]
-            #noise*kernel_dict["tr_kappa_grad_grad"]*noise
-
 
         #  in Equation 13:
         action_gradients =tf.gradients(ksd,fixed_actions)[0] 
@@ -297,7 +297,6 @@ class MASQL(MARLAlgorithm):
                     loss=surrogate_loss,
                     var_list=self.policy.get_params_internal())
                 self._training_ops.append(svgd_training_op)
-
 
 
     def _create_target_ops(self):
