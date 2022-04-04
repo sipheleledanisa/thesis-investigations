@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 
-from maci.learners import MAVBAC, MASQL, ROMMEO, MASAC
+from maci.learners import MAVBAC, MASQL_svgd, ROMMEO, MASAC
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame, DifferentialGame
 #from maci.environments import make_particle_env
@@ -310,7 +310,9 @@ def main(arglist):
                         except:
                                 pass
 
-                        if isinstance(agent, MAVBAC) or isinstance(agent, MASQL) or isinstance(agent, ROMMEO):
+                        if isinstance(agent, MAVBAC) or isinstance(agent, MASQL_svgd
+                        
+                        ) or isinstance(agent, ROMMEO):
                             agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i], annealing=alpha)
                         else:
                             agent._do_training(iteration=t + steps * agent._epoch_length, batch=batch_n[i])

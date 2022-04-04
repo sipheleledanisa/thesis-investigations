@@ -20,7 +20,7 @@ def assert_shape(tensor, expected_shape):
     assert all([a == b for a, b in zip(tensor_shape, expected_shape)])
 
 
-class MASQL(MARLAlgorithm):
+class MASQL_ksd(MARLAlgorithm):
     def __init__(
             self,
             base_kwargs,
@@ -53,7 +53,7 @@ class MASQL(MARLAlgorithm):
             opponent_action_range=None,
             opponent_action_range_normalize=True
     ):
-        super(MASQL, self).__init__(**base_kwargs)
+        super(MASQL_ksd, self).__init__(**base_kwargs)
 
         self.name = name
         self._env = env
