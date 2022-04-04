@@ -61,7 +61,7 @@ python3 run_baselines.py
 ## Reference Projects
 The project implementation has referred much from the following projects:
 
-* [Probabilistic Recursive Reasoning (PR2AC) and Regularised Opponent Modelling with Maximum Entropy Objectives] (https://github.com/ml3705454/mapr2)
+* [Probabilistic Recursive Reasoning (PR2AC) and Regularised Opponent Modelling with Maximum Entropy Objectives](https://github.com/ml3705454/mapr2)
 
 * [Stein Variational Gradient Descent (SVGD)](https://github.com/DartML/Stein-Variational-Gradient-Descent)
   
