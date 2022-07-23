@@ -47,10 +47,10 @@ def parse_args():
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
     parser.add_argument('-r', "--reward_type", type=str, default="abs", help="reward type")
     parser.add_argument('-mp', "--max_path_length", type=int, default=1, help="reward type")
-    parser.add_argument('-ms', "--max_steps", type=int, default=35000, help="reward type")
+    parser.add_argument('-ms', "--max_steps", type=int, default=100, help="reward type")
     parser.add_argument('-me', "--memory", type=int, default=0, help="reward type")
     parser.add_argument('-n', "--n", type=int, default=2, help="name of the game")
-    parser.add_argument('-bs', "--batch_size", type=int, default=512//4, help="name of the game")
+    parser.add_argument('-bs', "--batch_size", type=int, default=32, help="name of the game")
     parser.add_argument('-hm', "--hidden_size", type=int, default=100, help="name of the game")
     parser.add_argument('-ti', "--training_interval", type=int, default=1, help="name of the game")
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
@@ -122,7 +122,7 @@ def main(arglist):
     base_kwargs = {
         'sampler': sampler,
         'epoch_length': 1,
-        'n_epochs': arglist.max_steps,
+        'n_epochs': 2000,
         'n_train_repeat': 1,
         'eval_render': True,
         'eval_n_episodes': 10
