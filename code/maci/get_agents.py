@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from maci.learners import MADDPG, MAVBAC, MASQL_svgd, ROMMEO, MASAC, MI
+from maci.learners import MADDPG, MAVBAC, MASQL_ksd, ROMMEO, MASAC, MI
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
 from maci.replay_buffers import SimpleReplayBuffer
 from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction, NNVFunction
@@ -31,7 +31,7 @@ def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
 
     plotter = None
 
-    agent = MASQL_svgd(
+    agent = MASQL_ksd(
         base_kwargs=base_kwargs,
         agent_id=i,
         env=env,
